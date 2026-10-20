@@ -73,6 +73,15 @@ def finish(path, report):
     print((path / 'SHA256SUMS.txt').read_text(encoding='utf-8'))
 
 
+def android_candidate():
+    apk = exactly_one((ROOT / 'dist').rglob('*.apk'), 'ARM64 release APK')
+    with zipfile.ZipFile(apk) as archive:
+        require(archive.testzip() is None, 'Candidate APK ZIP integrity failure')
+    path = output('android-candidate')
+    shutil.copy2(apk, path / 'FlClash-personal-stable-android-arm64-candidate.apk')
+    finish(path, {'platform': 'android-arm64', 'acceptance': 'candidate only; tests, signature and binary SDK checks pending'})
+
+
 def android():
     apk = exactly_one((ROOT / 'dist').rglob('*.apk'), 'ARM64 release APK')
     analyzer = shutil.which('apkanalyzer')
@@ -161,4 +170,4 @@ def windows():
 
 if __name__ == '__main__':
     os.chdir(ROOT)
-    {'source': source, 'android': android, 'windows': windows}[sys.argv[1]]()
+    {'source': source, 'android-candidate': android_candidate, 'android': android, 'windows': windows}[sys.argv[1]]()
