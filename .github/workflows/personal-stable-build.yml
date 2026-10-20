@@ -1,0 +1,183 @@
+name: Personal stable packages
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [personal-stable]
+    paths:
+      - '.github/workflows/personal-stable-build.yml'
+      - 'tool/verify_personal_build.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: personal-stable-packages
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: '3.47.6'
+  GO_VERSION: '1.27.1'
+  RUSTUP_TOOLCHAIN: '1.99.0'
+  FLUTTER_SUPPRESS_ANALYTICS: 'true'
+  CI: 'true'
+
+jobs:
+  android:
+    if: github.repository == 'aishuishuishui277/FlClash' && github.ref == 'refs/heads/personal-stable'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: core/go.sum
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install pinned native toolchains
+        run: |
+          set -euo pipefail
+          sdkmanager 'platform-tools' 'platforms;android-37' 'build-tools;37.0.0' 'ndk;28.2.13676358'
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          echo "$ANDROID_HOME/build-tools/37.0.0" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+          rustup target add aarch64-linux-android --toolchain "$RUSTUP_TOOLCHAIN"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: plugins/rust_api/rust
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: master
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - name: Resolve locked dependencies and verify source
+        run: |
+          set -euo pipefail
+          flutter --version
+          flutter pub get --enforce-lockfile
+          python3 tool/verify_personal_build.py source
+          flutter analyze --no-pub --no-fatal-infos
+      - name: Configure optional personal signing
+        env:
+          KEYSTORE: ${{ secrets.KEYSTORE }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import base64, os
+          from pathlib import Path
+          keys = ['KEYSTORE', 'KEY_ALIAS', 'STORE_PASSWORD', 'KEY_PASSWORD']
+          values = [os.environ.get(key, '') for key in keys]
+          if any(values) and not all(values):
+              raise SystemExit('Incomplete signing secrets: configure all four or none')
+          if all(values):
+              Path('android/app/keystore.jks').write_bytes(base64.b64decode(values[0], validate=True))
+              def escape(value):
+                  return value.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r')
+              with Path('android/local.properties').open('a', encoding='utf-8') as file:
+                  for key, value in zip(['keyAlias', 'storePassword', 'keyPassword'], values[1:]):
+                      file.write('\n' + key + '=' + escape(value))
+          else:
+              print('TEST SIGNING: baseline debug certificate and com.follow.clash.dev package')
+          PY
+      - name: Build real ARM64 release APK
+        run: dart setup.dart android --arch arm64 --env stable -v
+      - name: Native tests and resolved dependency report
+        working-directory: android
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :common:testReleaseUnitTest :service:testReleaseUnitTest :app:testReleaseUnitTest -Ptarget-platform=android-arm64 -x :app:compileFlutterBuildRelease -x :app:copyFlutterAssetsRelease
+          ./gradlew :app:dependencies --configuration releaseRuntimeClasspath > ../android-runtime-dependencies.txt
+      - name: Validate APK, signature, DEX, Manifest and native libraries
+        run: python3 tool/verify_personal_build.py android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: personal-stable-android-arm64-${{ github.sha }}
+          path: delivery/android/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Remove temporary signing material
+        if: always()
+        run: rm -f android/app/keystore.jks android/local.properties
+
+  windows:
+    if: github.repository == 'aishuishuishui277/FlClash' && github.ref == 'refs/heads/personal-stable'
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Enable long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: core/go.sum
+      - name: Install native packaging tools
+        run: |
+          $ErrorActionPreference = 'Stop'
+          rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal
+          if ($LASTEXITCODE -ne 0) { throw 'Rust installation failed' }
+          if (-not (Get-Command gcc -ErrorAction SilentlyContinue)) {
+            choco install mingw -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'MinGW installation failed' }
+            'C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin' >> $env:GITHUB_PATH
+          }
+          $innoPath = 'C:\Program Files (x86)\Inno Setup 6'
+          if (-not (Test-Path "$innoPath\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
+          }
+          $innoPath >> $env:GITHUB_PATH
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            services/helper
+            plugins/rust_api/rust
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: master
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - name: Resolve locked dependencies and verify source
+        run: |
+          flutter --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          flutter pub get --enforce-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tool/verify_personal_build.py source
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          flutter analyze --no-pub --no-fatal-infos
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build complete x64 installer and portable ZIP
+        run: dart setup.dart windows --env stable -v
+      - name: Run packaging and startup tests with native hooks enabled
+        run: |
+          flutter test --no-pub --reporter expanded test/tool/packaging_config_test.dart test/common/boot_guard_test.dart test/common/boot_record_test.dart test/plugins/app_test.dart test/plugins/service_test.dart
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --manifest-path services/helper/Cargo.toml --features windows-service
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Validate complete release directory and archives
+        run: python tool/verify_personal_build.py windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: personal-stable-windows-x64-${{ github.sha }}
+          path: delivery/windows/
+          if-no-files-found: error
+          retention-days: 30

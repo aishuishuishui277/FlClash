@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - '**'
+      - '!personal-stable'
     tags:
       - 'v*'
   workflow_dispatch:
