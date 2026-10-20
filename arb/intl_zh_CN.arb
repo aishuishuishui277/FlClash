@@ -316,7 +316,7 @@
   "disclaimerLiabilityTitle": "责任限制",
   "disclaimerLiabilityContent": "在适用法律允许的最大范围内，开发者及所有贡献者均不对因使用或无法使用本软件而产生的任何直接、间接、偶然、特殊、惩罚性或后果性损害承担责任，包括但不限于数据丢失、设备损坏、网络异常、业务中断、利润损失或因此引起的任何法律纠纷，即使已被告知发生此类损害的可能性。",
   "disclaimerPrivacyTitle": "数据收集与隐私",
-  "disclaimerPrivacyContent": "本软件不会收集或上传你的订阅地址、节点信息、配置内容、访问的网站、连接记录、流量内容和日志，这些数据仅保存在你的设备本地，开发者无法获取。\n\n本软件只会在你使用相应功能时访问外部网络，例如更新订阅时访问你提供的订阅地址、检查更新时访问 GitHub。\n\n桌面版（Windows、macOS、Linux）未集成任何数据统计或崩溃上报服务。Android 版集成了 Google Firebase 的以下两项服务，用于改进应用稳定性：",
+  "disclaimerPrivacyContent": "本软件不会收集或上传你的订阅地址、节点信息、配置内容、访问的网站、连接记录、流量内容和日志，这些数据仅保存在你的设备本地，开发者无法获取。\n\n本软件只会在你使用相应功能时访问外部网络，例如更新订阅时访问你提供的订阅地址、检查更新时访问 GitHub。\n\n此版本已移除 Firebase Analytics 和 Firebase Crashlytics。Android 扫码功能仍使用 Google ML Kit，可能向 Google 发送使用情况和性能指标。",
   "disclaimerCrashlyticsTitle": "Firebase Crashlytics（崩溃分析）",
   "disclaimerCrashlyticsContent": "应用发生崩溃时，自动上传崩溃报告。\n\n收集内容：崩溃堆栈与错误信息、崩溃发生时间、应用版本与构建号、设备品牌与型号、Android 系统版本、屏幕方向、剩余内存与存储空间、设备是否已 root，以及一个随安装生成、重装后即重置的随机安装标识。\n\n用途：仅用于定位和修复崩溃问题。\n\n你可以在“工具 > 常规 > 崩溃分析”中随时关闭。",
   "disclaimerAnalyticsTitle": "Firebase Analytics（使用统计）",
