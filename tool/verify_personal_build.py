@@ -109,7 +109,7 @@ def android():
         names = archive.namelist()
         libs = [name for name in names if name.startswith('lib/') and name.endswith('.so')]
         require({name.split('/')[1] for name in libs} == {'arm64-v8a'}, 'APK is not ARM64-only')
-        for required in ['libflutter.so', 'libapp.so', 'libgojni.so', 'librust_api.so']:
+        for required in ['libflutter.so', 'libapp.so', 'libclash.so', 'librust_api.so']:
             require(any(Path(name).name == required for name in libs), f'Missing {required}')
         for name in libs:
             header = archive.read(name)[:20]
