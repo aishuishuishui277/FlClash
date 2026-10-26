@@ -31,6 +31,10 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
       - name: Configure required persistent personal signing
         env:
           KEYSTORE: ${{ secrets.ANDROID_PERSONAL_KEYSTORE }}
@@ -52,14 +56,12 @@ jobs:
               for key, value in zip(['keyAlias', 'storePassword', 'keyPassword'], values[1:]):
                   file.write('\n' + key + '=' + escape(value))
           PY
+          keytool -list -storetype PKCS12 -keystore android/app/keystore.jks -storepass:env STORE_PASSWORD -alias "$KEY_ALIAS" > /dev/null
+          echo 'Persistent signing keystore verified before native builds'
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: core/go.sum
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
       - uses: android-actions/setup-android@v3
         with:
           cmdline-tools-version: '16111833'
