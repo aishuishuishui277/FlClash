@@ -29,6 +29,8 @@ def source():
     allowed = {
         '.github/workflows/build.yaml', '.github/workflows/experiment-tun-recovery.yml',
         'lib/common/task.dart', 'core/experiment_interface_test.go',
+        'core/config.go', 'core/lifecycle.go', 'core/egress_windows.go',
+        'core/egress_windows_test.go', 'core/egress_other.go',
         'test/common/task_windows_interface_experiment_test.dart', 'tool/verify_tun_experiment.py',
         *[f'tool/tun-recovery/{name}' for name in ['Measure-Startup.ps1', 'Start-Automatic.cmd', 'Start-WLAN.cmd', 'ACCEPTANCE.txt']],
     }
@@ -87,7 +89,7 @@ def package():
         require(z.testzip() is None, 'ZIP integrity failure')
     report = {
         'commit': git('rev-parse', 'HEAD'), 'base': BASE, 'core': CORE,
-        'runtime_change': 'Windows-only process opt-in interface-name; default behavior unchanged',
+        'runtime_change': 'Windows automatic egress bootstrap before early outbound sessions; released after TUN setup; explicit interface retained',
         'package_validation': 'complete x64 release files, native assets, portable equality and core hash passed',
         'network_fix_confirmed': False,
         'device_network_tests': 'not performed; user A/B and NIC packet evidence required',

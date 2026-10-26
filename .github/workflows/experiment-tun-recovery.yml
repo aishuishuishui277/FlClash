@@ -90,13 +90,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           flutter analyze --no-pub --no-fatal-infos
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Verify mihomo accepts the explicit interface
+      - name: Verify mihomo config and Windows egress regression tests
         working-directory: core
         env:
           CGO_ENABLED: '0'
         run: |
-          if (gofmt -l experiment_interface_test.go) { throw 'Go test needs formatting' }
-          go test -count=1 -run '^TestWindowsOutboundInterfaceExperiment$' .
+          if (gofmt -l experiment_interface_test.go egress_windows.go egress_windows_test.go egress_other.go) { throw 'Go files need formatting' }
+          go test -count=1 -run '^TestWindows(OutboundInterfaceExperiment|EgressBootstrap)$' .
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test original configuration and startup paths
         run: |

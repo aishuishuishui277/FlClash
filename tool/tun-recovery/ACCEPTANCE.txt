@@ -1,7 +1,8 @@
 FlClash v0.9.2 Windows interface-binding experiment
 
 This is a diagnostic experiment, not a confirmed network fix.
-Runtime source is official v0.9.2 plus an opt-in Windows interface-name override.
+Runtime source is official v0.9.2 plus a Windows automatic egress bootstrap and
+the previous opt-in Windows interface-name override.
 The original DNS, rules, TUN stack, auto-route and auto-detect-interface remain.
 The mihomo pin stays c5062921054902b25215a6a933e72ccd714c9bfa (v1.19.33).
 
@@ -10,13 +11,19 @@ normal user data directory. Back up settings before switching versions.
 Do not run the control and experimental applications together.
 Complete normal Helper/admin authorization once per version before timing.
 
-Start-Automatic.cmd: original automatic behavior; experiment variable cleared.
+Start-Automatic.cmd: candidate automatic behavior; experiment variable cleared.
 Start-WLAN.cmd: sets FLCLASH_TUN_INTERFACE=WLAN for this process only.
+Automatic mode now temporarily binds early provider/DNS sessions to the system
+default egress (selected by Windows route/interface metric). It releases this
+binding after TUN setup so subsequent dials use the existing automatic detector.
+The final config.yaml interface-name stays empty. Existing explicit interfaces
+are respected. Logs report the bootstrap interface and detector readiness.
 The process override wins over the generated global interface-name, including
 the profile base/overlay path. A node's own interface binding still takes priority.
 Unknown/unavailable interface names cause binding errors; there is no silent fallback.
 If WLAN changes, use the measurement script's -InterfaceName parameter.
-Exit from the tray, then use Automatic mode to revert. Preferences are not changed.
+Exit from the tray, then return to the previous 50eeb5ba experimental ZIP or the
+personal-stable package to revert the candidate. Back up the shared user data.
 
 PowerShell 7.4+ timing runs, from this extracted directory:
   .\Measure-Startup.ps1 -Mode Automatic
@@ -52,10 +59,10 @@ Run the startup measurement, then stop only this recording:
 Correlate node IP/UDP source port with coreUdp PID records and NIC component IDs
 in components.json/adapters.json. Ordinary Find-NetRoute alone is not proof.
 
-Acceptance matrix: original v0.9.2 / experiment Automatic / experiment WLAN;
+Acceptance matrix: previous 50eeb5ba Automatic / candidate Automatic / WLAN;
 three cold starts and repeated TUN re-enables each; Hy2+OBFS+port hopping and a
 Reality node; explicit HTTP proxy with TUN off; Wi-Fi/network switch recovery.
 Use the same node for each A/B comparison. configHashExceptInterface helps detect
-unexpected configuration differences. Automatic mode must preserve original
-behavior. No improvement, new outages or failure after a network switch means
+unexpected configuration differences. Explicit-interface behavior must remain
+unchanged. No improvement, new outages or failure after a network switch means
 the experiment is not accepted; revert and keep the traces.

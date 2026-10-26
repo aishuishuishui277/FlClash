@@ -174,7 +174,7 @@ func applyConfig(params *SetupParams) error {
 	}
 
 	currentConfig = cfg
-	hub.ApplyConfig(cfg)
+	hub.ApplyConfig(prepareWindowsEgress(cfg))
 	patchSelectGroup(params.SelectedMap)
 	bumpRouteEpoch()
 	updateListeners(cfg)
