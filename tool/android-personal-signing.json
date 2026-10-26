@@ -1,0 +1,6 @@
+{
+  "package": "com.follow.clash.personal",
+  "certificate_sha256": "e361eb84e2b3689d66529dc0622b35814b81b7ace54897da346220db6c4e2d49",
+  "key_alias": "flclash-personal",
+  "format": "PKCS12"
+}

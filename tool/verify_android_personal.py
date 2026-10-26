@@ -1,0 +1,157 @@
+import hashlib
+import json
+from pathlib import Path
+import re
+import shutil
+import struct
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+import zipfile
+
+ROOT = Path(__file__).resolve().parents[1]
+BASE = '7fd417fb9a9a277c6a9339a8ac87f907df7c25f7'
+CORE = 'c5062921054902b25215a6a933e72ccd714c9bfa'
+REMOVAL = 'bc72bba981bdb8ec7c235d955eda124cd6c123a3'
+IDENTITY = json.loads((ROOT / 'tool/android-personal-signing.json').read_text())
+FORBIDDEN = re.compile(
+    r'com[./]google[./]firebase[./](?:analytics|crashlytics)(?:[./:]|\b)'
+    r'|com[./]google[./]android[./]gms[./](?:measurement|internal[./]measurement)(?:[./:]|\b)'
+    r'|firebase-(?:analytics|crashlytics)|play-services-measurement'
+    r'|FirebaseInitProvider|libcrashlytics', re.IGNORECASE,
+)
+
+
+def run(*args):
+    return subprocess.check_output([str(a) for a in args], cwd=ROOT, text=True, encoding='utf-8')
+
+
+def require(value, message):
+    if not value:
+        raise SystemExit(message)
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def source():
+    allowed = {'.github/workflows/build.yaml', '.github/workflows/android-personal-0.9.2.yml',
+               'android/app/build.gradle.kts', 'tool/verify_android_personal.py', 'tool/android-personal-signing.json'}
+    changed = set(run('git', 'diff', '--name-only', BASE, 'HEAD').splitlines())
+    require(changed <= allowed, f'Unexpected changes: {changed - allowed}')
+    subprocess.run(['git', 'merge-base', '--is-ancestor', REMOVAL, 'HEAD'], cwd=ROOT, check=True)
+    original = run('git', 'show', f'{BASE}:android/app/build.gradle.kts')
+    expected = original.replace('signingConfig = signingConfigs.getByName("release")',
+                                'signingConfig = signingConfigs.getByName("release")\n                applicationIdSuffix = ".personal"')
+    require((ROOT / 'android/app/build.gradle.kts').read_text() == expected, 'Android changes exceed the approved package suffix')
+    require(run('git', '-C', 'core/Clash.Meta', 'rev-parse', 'HEAD').strip() == CORE, 'mihomo pin changed')
+    changes = set(run('git', '-C', 'core/Clash.Meta', 'diff', '--name-only').splitlines())
+    require(changes <= {'component/ca/ca-certificates.crt'}, 'Tracked mihomo source modified')
+    if changes:
+        require(digest((ROOT / 'core/Clash.Meta/component/ca/ca-certificates.crt').read_bytes()) ==
+                'a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505', 'CA bundle differs from upstream')
+    pubspec = (ROOT / 'pubspec.yaml').read_text()
+    require(pubspec.count('build_assets: true') == 2 and 'build_assets: false' not in pubspec, 'Native hooks disabled')
+    require(not (ROOT / 'android/app/google-services.json').exists(), 'Firebase config returned')
+    for file in (ROOT / 'android').rglob('*'):
+        if file.suffix in ['.kts', '.toml'] and 'build' not in file.parts:
+            content = file.read_text()
+            require(not FORBIDDEN.search(content) and 'com.google.gms.google-services' not in content, f'Firebase build dependency in {file}')
+    print('Official v0.9.2 runtime, pins and native hooks preserved; upstream Firebase removal present')
+
+
+def apk_file():
+    files = list((ROOT / 'dist').rglob('*.apk'))
+    require(len(files) == 1, f'Expected one ARM64 release APK: {files}')
+    return files[0]
+
+
+def finish(folder, report):
+    report.update(commit=run('git', 'rev-parse', 'HEAD').strip(), base=BASE, core_commit=CORE,
+                  device_network_tests='not performed; vivo Y300i Android 15 user acceptance required')
+    (folder / 'validation.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+    (folder / 'SHA256SUMS.txt').write_text(''.join(f'{digest(f.read_bytes())}  {f.name}\n'
+        for f in sorted(folder.iterdir()) if f.is_file() and f.name != 'SHA256SUMS.txt'), encoding='utf-8')
+    print(json.dumps(report, indent=2))
+    print((folder / 'SHA256SUMS.txt').read_text())
+
+
+def candidate():
+    apk = apk_file()
+    with zipfile.ZipFile(apk) as z:
+        require(z.testzip() is None, 'APK ZIP corruption')
+    folder = ROOT / 'delivery/android-candidate'
+    folder.mkdir(parents=True, exist_ok=False)
+    shutil.copy2(apk, folder / 'FlClash-v0.9.2-personal-arm64-candidate.apk')
+    finish(folder, {'acceptance': 'candidate only; final binary and JVM acceptance pending'})
+
+
+def android():
+    source()
+    apk = apk_file()
+    analyzer, signer = shutil.which('apkanalyzer'), shutil.which('apksigner')
+    require(analyzer and signer, 'Android SDK inspection tools missing')
+    signature = run(signer, 'verify', '--verbose', '--print-certs', apk)
+    run(signer, 'verify', '--verbose', '--min-sdk-version', '35', apk)
+    fingerprint = re.search(r'Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F]+)', signature)
+    require(fingerprint and fingerprint[1].lower() == IDENTITY['certificate_sha256'], 'Unexpected signing certificate')
+    require('CN=Android Debug' not in signature, 'Ephemeral debug signature is not accepted')
+    manifest = run(analyzer, 'manifest', 'print', apk)
+    dex = run(analyzer, 'dex', 'packages', '--defined-only', apk)
+    deps = (ROOT / 'android-runtime-dependencies.txt').read_text()
+    require('FAILED' not in deps and 'BUILD SUCCESSFUL' in deps, 'Dependency resolution incomplete')
+    for label, content in [('DEX', dex), ('Manifest', manifest), ('runtime graph', deps)]:
+        require(not FORBIDDEN.search(content), f'Firebase analytics/crash reporting found in {label}')
+    tree = ET.fromstring(manifest)
+    ns = '{http://schemas.android.com/apk/res/android}'
+    require(tree.attrib['package'] == IDENTITY['package'], 'Incorrect private package ID')
+    sdk = tree.find('uses-sdk')
+    require(sdk is not None and int(sdk.attrib[ns + 'minSdkVersion']) <= 35, 'APK excludes Android 15')
+    require(tree.find('application').attrib.get(ns + 'debuggable', 'false') != 'true', 'Not a release APK')
+    require(any(s.attrib.get(ns + 'permission') == 'android.permission.BIND_VPN_SERVICE' and
+                'specialUse' in s.attrib.get(ns + 'foregroundServiceType', '') for s in tree.findall('.//service')), 'VPN foreground service missing')
+    for permission in ['INTERNET', 'CAMERA', 'FOREGROUND_SERVICE_SPECIAL_USE', 'POST_NOTIFICATIONS']:
+        require('android.permission.' + permission in manifest, f'Missing {permission}')
+    with zipfile.ZipFile(apk) as z:
+        require(z.testzip() is None, 'APK ZIP corruption')
+        names = z.namelist()
+        libs = [n for n in names if n.startswith('lib/') and n.endswith('.so')]
+        require({n.split('/')[1] for n in libs} == {'arm64-v8a'}, 'APK is not ARM64-only')
+        for name in ['libflutter.so', 'libapp.so', 'libclash.so', 'librust_api.so', 'libbarhopper_v3.so']:
+            require('lib/arm64-v8a/' + name in libs, f'Missing {name}')
+        require(z.getinfo('lib/arm64-v8a/libclash.so').file_size > 1_000_000, 'Empty or placeholder core')
+        alignment = {}
+        for name in libs:
+            data = z.read(name)
+            require(data[:4] == b'\x7fELF' and data[4] == 2 and struct.unpack_from('<H', data, 18)[0] == 183, f'Invalid AArch64 ELF: {name}')
+            offset, size, count = struct.unpack_from('<Q', data, 32)[0], struct.unpack_from('<H', data, 54)[0], struct.unpack_from('<H', data, 56)[0]
+            alignment[name] = sorted({struct.unpack_from('<Q', data, offset + i * size + 48)[0] for i in range(count)
+                                      if struct.unpack_from('<I', data, offset + i * size)[0] == 1})
+        require(not FORBIDDEN.search('\n'.join(names)), 'Telemetry native files found')
+        require(any(n.startswith('classes') and n.endswith('.dex') for n in names), 'DEX missing')
+        require(any(n.startswith('assets/mlkit_barcode_models/') and n.endswith('.tflite') for n in names), 'Bundled scanner models missing')
+    require('barcode-scanning' in deps and 'com.google.mlkit' in deps, 'ML Kit scanner removed')
+    totals = dict(tests=0, failures=0, errors=0, skipped=0)
+    results = list((ROOT / 'build').glob('**/test-results/testDebugUnitTest/TEST-*.xml'))
+    require(results, 'JVM test reports missing')
+    for file in results:
+        suite = ET.parse(file).getroot()
+        for key in totals:
+            totals[key] += int(suite.attrib.get(key, 0))
+    require(totals['tests'] > 0 and totals['failures'] == totals['errors'] == 0, f'JVM tests failed: {totals}')
+    folder = ROOT / 'delivery/android'
+    folder.mkdir(parents=True, exist_ok=False)
+    shutil.copy2(apk, folder / 'FlClash-v0.9.2-personal-android-arm64.apk')
+    for name, content in [('signature.txt', signature), ('manifest.xml', manifest), ('dex-packages.txt', dex), ('runtime-dependencies.txt', deps)]:
+        (folder / name).write_text(content, encoding='utf-8')
+    finish(folder, {'package': IDENTITY['package'], 'version_name': tree.attrib.get(ns + 'versionName'),
+                    'version_code': tree.attrib.get(ns + 'versionCode'), 'min_sdk': sdk.attrib.get(ns + 'minSdkVersion'),
+                    'target_sdk': sdk.attrib.get(ns + 'targetSdkVersion'), 'certificate_sha256': fingerprint[1].lower(),
+                    'test_signed': False, 'native_libraries': libs, 'elf_load_alignment': alignment, 'jvm_tests': totals,
+                    'firebase_analytics_crashlytics': 'absent from runtime graph, Manifest, defined DEX and native names',
+                    'ml_kit': 'barcode native library and bundled models retained; metrics/DataTransport exception remains'})
+
+
+if __name__ == '__main__':
+    {'source': source, 'candidate': candidate, 'android': android}[sys.argv[1]]()

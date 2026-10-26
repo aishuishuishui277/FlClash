@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - '**'
+      - '!experiment-android-0.9.2'
     tags:
       - 'v*'
   workflow_dispatch:
