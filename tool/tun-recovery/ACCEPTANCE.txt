@@ -1,0 +1,61 @@
+FlClash v0.9.2 Windows interface-binding experiment
+
+This is a diagnostic experiment, not a confirmed network fix.
+Runtime source is official v0.9.2 plus an opt-in Windows interface-name override.
+The original DNS, rules, TUN stack, auto-route and auto-detect-interface remain.
+The mihomo pin stays c5062921054902b25215a6a933e72ccd714c9bfa (v1.19.33).
+
+Exit the currently running FlClash from its tray first. These builds share the
+normal user data directory. Back up settings before switching versions.
+Do not run the control and experimental applications together.
+Complete normal Helper/admin authorization once per version before timing.
+
+Start-Automatic.cmd: original automatic behavior; experiment variable cleared.
+Start-WLAN.cmd: sets FLCLASH_TUN_INTERFACE=WLAN for this process only.
+The process override wins over the generated global interface-name, including
+the profile base/overlay path. A node's own interface binding still takes priority.
+Unknown/unavailable interface names cause binding errors; there is no silent fallback.
+If WLAN changes, use the measurement script's -InterfaceName parameter.
+Exit from the tray, then use Automatic mode to revert. Preferences are not changed.
+
+PowerShell 7.4+ timing runs, from this extracted directory:
+  .\Measure-Startup.ps1 -Mode Automatic
+  .\Measure-Startup.ps1 -Mode Wlan -InterfaceName WLAN
+For the original official v0.9.2, use the same script with -AppDirectory pointing
+at that build and -Mode Automatic. Compare at least three cold starts per mode
+on the same Wi-Fi, selected node, DNS, rules and TUN stack.
+Observe UI-driven TUN off/on without restarting Core:
+  .\Measure-Startup.ps1 -Mode Wlan -ObserveOnly -DurationSeconds 120
+Toggle TUN in the UI during that observation. The script never changes TUN,
+routes, DNS, system proxy or process ownership; it does not stop an application.
+
+Record the existing application log at Debug level in all compared modes, then
+export it from the log page after each run. The timing tool records Core creation
+time when accessible; listeners, TUN status and default routes are observations
+with polling latency, not exact creation/install timestamps. Curl trace files
+separate localhost connection, CONNECT 200, remote TLS and HTTP completion.
+The full 90-second observation, not a single 4-second timeout, measures recovery.
+Unreported node DNS/handshake events remain unknown; IP-literal nodes have no
+node-hostname lookup. Correlate with exported Core logs rather than inventing times.
+
+For actual physical egress evidence, use an Administrator terminal and first
+check that pktmon has no other active recording. Preserve existing filters:
+  pktmon status
+  pktmon filter list
+  pktmon list --json > components.json
+  pktmon filter add FlClashTunNode -i 156.231.115.34
+  pktmon start --capture --comp nics --pkt-size 96 --file-size 32 --file-name node.etl
+Run the startup measurement, then stop only this recording:
+  pktmon stop
+  pktmon filter remove FlClashTunNode
+  pktmon etl2txt node.etl --timestamp --out node-packets.txt
+Correlate node IP/UDP source port with coreUdp PID records and NIC component IDs
+in components.json/adapters.json. Ordinary Find-NetRoute alone is not proof.
+
+Acceptance matrix: original v0.9.2 / experiment Automatic / experiment WLAN;
+three cold starts and repeated TUN re-enables each; Hy2+OBFS+port hopping and a
+Reality node; explicit HTTP proxy with TUN off; Wi-Fi/network switch recovery.
+Use the same node for each A/B comparison. configHashExceptInterface helps detect
+unexpected configuration differences. Automatic mode must preserve original
+behavior. No improvement, new outages or failure after a network switch means
+the experiment is not accepted; revert and keep the traces.

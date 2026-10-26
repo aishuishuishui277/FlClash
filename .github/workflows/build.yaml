@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - '**'
+      - '!experiment-tun-recovery'
     tags:
       - 'v*'
   workflow_dispatch:

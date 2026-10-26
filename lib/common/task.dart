@@ -186,6 +186,12 @@ Future<RealProfile> _makeRealProfileTask(MakeRealProfileState data) async {
   }
   rawConfig['external-ui-url'] = '';
   rawConfig.addAll(realPatchConfig.generalOverrideJson);
+  final experimentInterface = system.isWindows && !data.safeMode
+      ? Platform.environment['FLCLASH_TUN_INTERFACE']?.trim()
+      : null;
+  if (experimentInterface != null && experimentInterface.isNotEmpty) {
+    rawConfig['interface-name'] = experimentInterface;
+  }
   rawConfig['log-level'] = realPatchConfig.logLevel.name;
   rawConfig['port'] = 0;
   rawConfig['socks-port'] = 0;
