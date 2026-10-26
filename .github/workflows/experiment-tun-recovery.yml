@@ -31,7 +31,9 @@ jobs:
         shell: pwsh
     steps:
       - name: Enable long paths
-        run: git config --global core.longpaths true
+        run: |
+          git config --global core.longpaths true
+          git config --global core.autocrlf false
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
