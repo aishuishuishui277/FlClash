@@ -3,11 +3,20 @@ package com.follow.clash.core
 import com.follow.clash.core.mobile.Mobile
 import com.follow.clash.core.mobile.ResultHandler
 import com.follow.clash.core.mobile.TunHandler
+import com.follow.clash.core.mobile.StartupTraceHandler
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.URI
 
 object Core {
+    fun configureStartupTrace(enabled: Boolean, emit: (String) -> Unit) {
+        Mobile.setStartupTraceHandler(
+            if (enabled) StartupTraceHandler { data ->
+                if (data != null) emit(data)
+            } else null,
+        )
+    }
+
     fun forceGC() = Mobile.forceGC()
 
     fun updateDNS(

@@ -50,7 +50,16 @@ def certificate_digests(signature):
 
 def source():
     allowed = {'.github/workflows/build.yaml', '.github/workflows/android-personal-0.9.2.yml',
-               'android/app/build.gradle.kts', 'tool/verify_android_personal.py', 'tool/android-personal-signing.json'}
+               'android/app/build.gradle.kts', 'tool/verify_android_personal.py', 'tool/android-personal-signing.json',
+               'android/app/src/main/kotlin/com/follow/clash/ServiceController.kt',
+               'android/app/src/main/kotlin/com/follow/clash/plugins/ServicePlugin.kt',
+               'android/common/src/main/java/com/follow/clash/common/StartupTrace.kt',
+               'android/core/src/main/java/com/follow/clash/core/Core.kt',
+               'android/service/src/main/java/com/follow/clash/service/NetworkObserver.kt',
+               'android/service/src/main/java/com/follow/clash/service/VpnService.kt',
+               'core/config.go', 'core/connection.go', 'core/delay.go', 'core/hooks.go', 'core/lib.go',
+               'core/lifecycle.go', 'core/mobile/mobile.go', 'core/startup_trace.go', 'core/startup_trace_test.go',
+               'tool/android-startup/Measure-AndroidStartup.ps1', 'tool/android-startup/README.md', 'pubspec.yaml'}
     changed = set(run('git', 'diff', '--name-only', BASE, 'HEAD').splitlines())
     require(changed <= allowed, f'Unexpected changes: {changed - allowed}')
     subprocess.run(['git', 'merge-base', '--is-ancestor', REMOVAL, 'HEAD'], cwd=ROOT, check=True)
@@ -65,13 +74,15 @@ def source():
         require(digest((ROOT / 'core/Clash.Meta/component/ca/ca-certificates.crt').read_bytes()) ==
                 'a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505', 'CA bundle differs from upstream')
     pubspec = (ROOT / 'pubspec.yaml').read_text()
+    require(pubspec == run('git', 'show', f'{BASE}:pubspec.yaml').replace(
+        'version: 0.9.2+2026102401', 'version: 0.9.2+2026102601'), 'Changes exceed build-number metadata')
     require(pubspec.count('build_assets: true') == 2 and 'build_assets: false' not in pubspec, 'Native hooks disabled')
     require(not (ROOT / 'android/app/google-services.json').exists(), 'Firebase config returned')
     for file in (ROOT / 'android').rglob('*'):
         if file.suffix in ['.kts', '.toml'] and 'build' not in file.parts:
             content = file.read_text()
             require(not FORBIDDEN.search(content) and 'com.google.gms.google-services' not in content, f'Firebase build dependency in {file}')
-    print('Official v0.9.2 runtime, pins and native hooks preserved; upstream Firebase removal present')
+    print('Official v0.9.2 with opt-in startup tracing; pins, native hooks and Firebase removal preserved')
 
 
 def apk_file():
@@ -82,7 +93,8 @@ def apk_file():
 
 def finish(folder, report):
     report.update(commit=run('git', 'rev-parse', 'HEAD').strip(), base=BASE, core_commit=CORE,
-                  device_network_tests='not performed; vivo Y300i Android 15 user acceptance required')
+                  device_network_tests='not performed; vivo Y300i Android 15 user acceptance required',
+                  purpose='diagnostic only; no network recovery fix implemented or verified')
     (folder / 'validation.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
     (folder / 'SHA256SUMS.txt').write_text(''.join(f'{digest(f.read_bytes())}  {f.name}\n'
         for f in sorted(folder.iterdir()) if f.is_file() and f.name != 'SHA256SUMS.txt'), encoding='utf-8')
@@ -154,7 +166,11 @@ def android():
     require(totals['tests'] > 0 and totals['failures'] == totals['errors'] == 0, f'JVM tests failed: {totals}')
     folder = ROOT / 'delivery/android'
     folder.mkdir(parents=True, exist_ok=False)
-    shutil.copy2(apk, folder / 'FlClash-v0.9.2-personal-android-arm64.apk')
+    require(int(tree.attrib[ns + 'versionCode']) > 2026104401, 'Version code does not permit upgrade from prior personal APK')
+    shutil.copy2(apk, folder / 'FlClash-v0.9.2-personal-android-arm64-startup-diagnostic.apk')
+    for file in (ROOT / 'tool/android-startup').iterdir():
+        if file.is_file():
+            shutil.copy2(file, folder / file.name)
     for name, content in [('signature.txt', signature), ('manifest.xml', manifest), ('dex-packages.txt', dex), ('runtime-dependencies.txt', deps)]:
         (folder / name).write_text(content, encoding='utf-8')
     finish(folder, {'package': IDENTITY['package'], 'version_name': tree.attrib.get(ns + 'versionName'),

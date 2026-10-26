@@ -51,4 +51,5 @@ func reportDialerLoop(proxyName string) {
 	}
 	dialerLoopReports.Store(proxyName, now)
 	sendMessage(DialerLoopMessage, proxyName)
+	traceStartup("dialer_loop_detected", 1, 0)
 }

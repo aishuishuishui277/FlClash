@@ -5,6 +5,8 @@ import com.follow.clash.ServiceState
 import com.follow.clash.common.Components
 import com.follow.clash.models.SharedState
 import com.follow.clash.service.NetworkObserver
+import com.follow.clash.common.StartupTrace
+import com.follow.clash.core.Core
 import com.google.gson.Gson
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.BinaryMessenger
@@ -67,6 +69,8 @@ class ServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     private fun initialize(result: MethodChannel.Result) {
+        Core.configureStartupTrace(StartupTrace.enabled, StartupTrace::core)
+        StartupTrace.event("service_plugin_init")
         NetworkObserver.start()
         ServiceController.setEventListener(::sendEvent)
             .onSuccess { result.success("") }
@@ -113,12 +117,14 @@ class ServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     private fun start(call: MethodCall, result: MethodChannel.Result) {
+        StartupTrace.event("ui_start_command")
         commandRevision = call.arguments as? Int ?: commandRevision
         ServiceState.requestStart()
         result.success(true)
     }
 
     private fun stop(call: MethodCall, result: MethodChannel.Result) {
+        StartupTrace.event("ui_stop_command")
         commandRevision = call.arguments as? Int ?: commandRevision
         ServiceState.requestStop()
         result.success(true)

@@ -10,6 +10,7 @@ import android.os.IBinder
 import androidx.core.content.getSystemService
 import com.follow.clash.common.AccessControlMode
 import com.follow.clash.common.GlobalState
+import com.follow.clash.common.StartupTrace
 import com.follow.clash.common.R as CommonR
 import com.follow.clash.core.Core
 import com.follow.clash.service.models.CIDR
@@ -118,11 +119,13 @@ class VpnService : SystemVpnService(), ManagedService {
     }
 
     override fun onRevoke() {
+        StartupTrace.event("vpn_revoke")
         stop()
         notifyVpnRevoked()
     }
 
     private fun handleStart(options: VpnOptions) {
+        StartupTrace.event("vpn_establish_begin")
         val fd = with(Builder()) {
             addAddressAndRoutes(options)
             addDnsServers(options)
@@ -150,6 +153,7 @@ class VpnService : SystemVpnService(), ManagedService {
                 ?: error("VPN establishment was rejected by the system")
         }
         synchronized(tunLock) {
+            StartupTrace.event("vpn_established", 0, fd.toLong())
             tunRunning = true
             try {
                 // A Core that fails to take the descriptor leaves the system
@@ -169,7 +173,9 @@ class VpnService : SystemVpnService(), ManagedService {
                         options = options.tunOptions,
                     ),
                 ) { "Core rejected the tun file descriptor" }
+                StartupTrace.event("vpn_core_start_end", 1)
             } catch (error: Exception) {
+                StartupTrace.event("vpn_core_start_end", 0)
                 stopTunLocked()
                 throw error
             }
@@ -287,6 +293,7 @@ class VpnService : SystemVpnService(), ManagedService {
 
     private fun stopTunLocked() {
         if (tunRunning) {
+            StartupTrace.event("vpn_tun_stop")
             Core.stopTun()
             tunRunning = false
         }

@@ -149,6 +149,7 @@ func loadSetupConfig(params *SetupParams) (*config.Config, error) {
 }
 
 func applyConfig(params *SetupParams) error {
+	traceStartup("config_apply_begin", 0, 0)
 	runtime.GC()
 	configMu.Lock()
 	defer configMu.Unlock()
@@ -174,7 +175,10 @@ func applyConfig(params *SetupParams) error {
 	}
 
 	currentConfig = cfg
+	traceStartup("config_network_flags", boolTrace(cfg.General.Tun.AutoRoute)|boolTrace(cfg.General.Tun.AutoDetectInterface)<<1|boolTrace(cfg.General.Interface != "")<<2|boolTrace(cfg.General.Tun.Enable)<<3, int64(cfg.General.MixedPort))
+	traceStartup("config_parse_end", boolTrace(err == nil), 0)
 	hub.ApplyConfig(cfg)
+	traceStartup("config_apply_end", boolTrace(err == nil), 0)
 	patchSelectGroup(params.SelectedMap)
 	bumpRouteEpoch()
 	updateListeners(cfg)

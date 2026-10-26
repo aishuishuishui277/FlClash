@@ -11,6 +11,18 @@ type ResultHandler interface {
 	OnResult(data []byte) error
 }
 
+type StartupTraceHandler interface {
+	OnEvent(data string) error
+}
+
+func SetStartupTraceHandler(handler StartupTraceHandler) {
+	if handler == nil {
+		core.SetStartupDiagnosticSink(nil)
+		return
+	}
+	core.SetStartupDiagnosticSink(func(data string) { _ = handler.OnEvent(data) })
+}
+
 type TunHandler interface {
 	Protect(fd int32) (bool, error)
 	ResolveUid(protocol int32, source, target string) (int32, error)

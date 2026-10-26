@@ -12,6 +12,7 @@ import com.follow.clash.common.intent
 import com.follow.clash.core.Core
 import com.follow.clash.service.ManagedService
 import com.follow.clash.service.NetworkObserver
+import com.follow.clash.common.StartupTrace
 import com.follow.clash.service.ProxyService
 import com.follow.clash.service.ServiceConfig
 import com.follow.clash.service.VpnService
@@ -58,6 +59,8 @@ object ServiceController {
         initParams: String,
         setupParams: String,
     ): Result<String> = runCatching {
+        Core.configureStartupTrace(StartupTrace.enabled, StartupTrace::core)
+        StartupTrace.event("quick_setup_begin")
         NetworkObserver.start()
         suspendCancellableCoroutine { continuation ->
             Core.quickSetup(initParams, setupParams) { result ->
@@ -111,10 +114,12 @@ object ServiceController {
             vpn = options.enable,
             startedAtMillis = runtime?.startedAtMillis ?: System.currentTimeMillis(),
         )
+        StartupTrace.event("service_started", if (options.enable) 1 else 0, runtime?.startedAtMillis ?: 0)
         true
     }
 
     suspend fun stop() = lock.withLock {
+        StartupTrace.event("service_stop")
         tearDownServices()
         release()
     }

@@ -71,6 +71,7 @@ func reportMissingDelayTestProxy(name string) {
 
 // A nil answer means the test never got a slot, which says nothing about the proxy.
 func handleTestDelay(params *TestDelayParams) *Delay {
+	traceStartup("delay_probe_begin", 0, 0)
 	url := params.TestUrl
 	if url == "" {
 		url = currentTestURL()
@@ -79,12 +80,14 @@ func handleTestDelay(params *TestDelayParams) *Delay {
 
 	proxy := lookupProxy(params.ProxyName)
 	if proxy == nil {
+		traceStartup("delay_probe_missing_proxy", 8, 0)
 		reportMissingDelayTestProxy(params.ProxyName)
 		return result
 	}
 
 	timeout := timeoutFromMillis(params.Timeout, defaultDelayTestTimeout)
 	if !delayTestSlots.acquireWithin(context.Background(), timeout) {
+		traceStartup("delay_probe_no_slot", 2, 0)
 		return nil
 	}
 	defer delayTestSlots.release()
@@ -92,6 +95,11 @@ func handleTestDelay(params *TestDelayParams) *Delay {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	delay, err := proxy.URLTest(ctx, url, anyDelayTestStatus)
+	code := int64(0)
+	if err != nil {
+		code = startupErrorClass(err.Error())
+	}
+	traceStartup("delay_probe_end", code, int64(delay))
 	if err != nil {
 		delay = 0
 	}

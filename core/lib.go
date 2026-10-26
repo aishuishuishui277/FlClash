@@ -42,6 +42,7 @@ type TunHandler struct {
 }
 
 func (th *TunHandler) start(fd int, stack, address, dns, options string) bool {
+	traceStartup("go_tun_start_begin", 0, int64(fd))
 	configMu.Lock()
 	defer configMu.Unlock()
 
@@ -61,9 +62,11 @@ func (th *TunHandler) start(fd int, stack, address, dns, options string) bool {
 	if tunListener != nil {
 		log.Infoln("TUN address: %v", tunListener.Address())
 		th.listener = tunListener
+		traceStartup("go_tun_start_end", 1, int64(fd))
 		return true
 	}
 	th.clear()
+	traceStartup("go_tun_start_end", 0, int64(fd))
 	return false
 }
 
@@ -90,9 +93,11 @@ func (th *TunHandler) handleProtect(fd int) {
 	defer th.mu.RUnlock()
 
 	if th.listener == nil || th.callbacks == nil {
+		traceStartupSocket("protect_skipped", boolTrace(th.listener != nil), int64(fd))
 		return
 	}
-	th.callbacks.Protect(fd)
+	protected := th.callbacks.Protect(fd)
+	traceStartupSocket("protect_result", boolTrace(protected), int64(fd))
 }
 
 func (th *TunHandler) handleResolveProcess(source, target net.Addr) (int, string) {
@@ -134,9 +139,11 @@ func installHooks() {
 			}
 			th := activeTunHandler.Load()
 			if th == nil {
+				traceStartupSocket("socket_without_handler", traceProtocol(network), 0)
 				return nil
 			}
 			return conn.Control(func(fd uintptr) {
+				traceStartupSocket("socket_create", traceProtocol(network), int64(fd))
 				th.handleProtect(int(fd))
 			})
 		}

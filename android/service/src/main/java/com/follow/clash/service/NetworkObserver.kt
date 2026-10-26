@@ -12,6 +12,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import androidx.core.content.getSystemService
 import com.follow.clash.common.GlobalState
+import com.follow.clash.common.StartupTrace
 import com.follow.clash.core.Core
 import java.net.Inet4Address
 import java.net.Inet6Address
@@ -52,11 +53,13 @@ object NetworkObserver {
 
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
+            traceNetwork("network_available", network)
             networkInfos[network] = NetworkInfo()
             scheduleUpdateDns()
         }
 
         override fun onLosing(network: Network, maxMsToLive: Int) {
+            StartupTrace.event("network_losing", maxMsToLive.toLong(), network.networkHandle)
             val info = networkInfos[network] ?: return
             info.losingUntilMillis = System.currentTimeMillis() + maxMsToLive
             scheduleUpdateDns()
@@ -70,14 +73,31 @@ object NetworkObserver {
         }
 
         override fun onLost(network: Network) {
+            traceNetwork("network_lost", network)
             networkInfos.remove(network)
             scheduleUpdateDns()
         }
 
         override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+            StartupTrace.event("network_dns", linkProperties.dnsServers.size.toLong(), network.networkHandle)
             networkInfos[network]?.dnsList = linkProperties.dnsServers
             scheduleUpdateDns()
         }
+
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            traceNetwork("network_capabilities", network)
+        }
+    }
+
+    private fun traceNetwork(event: String, network: Network) {
+        if (!StartupTrace.enabled) return
+        val capabilities = connectivity?.getNetworkCapabilities(network)
+        val flags = (if (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) 1L else 0L) or
+            (if (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true) 2L else 0L) or
+            (if (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) 4L else 0L) or
+            (if (capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true) 8L else 0L)
+        StartupTrace.event(event, flags, network.networkHandle)
+        StartupTrace.event("default_network", 0, connectivity?.activeNetwork?.networkHandle ?: 0)
     }
 
     private val updateDnsTask = Runnable(::updateDns)
@@ -91,10 +111,17 @@ object NetworkObserver {
 
     @Synchronized
     fun start() {
+        StartupTrace.event("network_observer_start", if (started) 1 else 0)
         if (started) return
         runCatching { requireNotNull(connectivity).registerNetworkCallback(request, callback) }
-            .onSuccess { started = true }
-            .onFailure { error -> GlobalState.log("Unable to observe networks: $error") }
+            .onSuccess {
+                started = true
+                StartupTrace.event("network_observer_registered", 1)
+            }
+            .onFailure { error ->
+                StartupTrace.event("network_observer_registered", 0)
+                GlobalState.log("Unable to observe networks: $error")
+            }
     }
 
     private fun networkPriority(entry: Map.Entry<Network, NetworkInfo>): Int {
@@ -126,6 +153,7 @@ object NetworkObserver {
             .map { address -> address.asSocketAddressText(DNS_PORT) }
             .distinct()
         if (dnsList != currentDnsList) {
+            StartupTrace.event("system_dns_update", dnsList.size.toLong())
             currentDnsList = dnsList
             Core.updateDNS(dnsList.joinToString(","))
         }
@@ -133,6 +161,7 @@ object NetworkObserver {
         // Sockets protected onto the network we left stay bound to it; closing
         // them makes apps reconnect now instead of after a TCP timeout.
         if (currentNetwork != null && currentNetwork != network) {
+            StartupTrace.event("underlying_network_changed", 0, network.networkHandle)
             Core.resetNetwork()
         }
         currentNetwork = network

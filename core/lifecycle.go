@@ -26,6 +26,7 @@ var (
 )
 
 func handleInitClash(params *InitParams) bool {
+	traceStartup("core_init", 0, int64(params.Version))
 	configMu.Lock()
 	defer configMu.Unlock()
 	sdkVersion.Store(int32(params.Version))
@@ -41,6 +42,7 @@ func handleGetIsInit() bool {
 }
 
 func handleStartListener() bool {
+	traceStartup("listener_start_begin", 0, 0)
 	configMu.Lock()
 	defer configMu.Unlock()
 	isRunning.Store(true)
@@ -49,15 +51,18 @@ func handleStartListener() bool {
 	// A probe already out left before the TUN routes and over the DNS
 	// connections just dropped, so its answer must not stand for this route.
 	bumpRouteEpoch()
+	traceStartup("listener_start_end", 0, 0)
 	return true
 }
 
 func handleStopListener() bool {
+	traceStartup("listener_stop_begin", 0, 0)
 	configMu.Lock()
 	defer configMu.Unlock()
 	isRunning.Store(false)
 	listener.StopListener()
 	resolver.ResetConnection()
+	traceStartup("listener_stop_end", 0, 0)
 	return true
 }
 
@@ -88,6 +93,7 @@ func updateListeners(cfg *config.Config) {
 }
 
 func handleShutdown() bool {
+	traceStartup("core_shutdown", 0, 0)
 	handleStopLog()
 	stopRouteWatch()
 
