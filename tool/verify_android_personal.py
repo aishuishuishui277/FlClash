@@ -35,6 +35,19 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def special_use(value):
+    if 'specialUse' in value.split('|'):
+        return True
+    try:
+        return bool(int(value, 0) & 0x40000000)
+    except ValueError:
+        return False
+
+
+def certificate_digests(signature):
+    return {value.lower() for value in re.findall(r'certificate SHA-256 digest:\s*([0-9a-fA-F]{64})\b', signature)}
+
+
 def source():
     allowed = {'.github/workflows/build.yaml', '.github/workflows/android-personal-0.9.2.yml',
                'android/app/build.gradle.kts', 'tool/verify_android_personal.py', 'tool/android-personal-signing.json'}
@@ -94,8 +107,7 @@ def android():
     require(analyzer and signer, 'Android SDK inspection tools missing')
     signature = run(signer, 'verify', '--verbose', '--print-certs', apk)
     run(signer, 'verify', '--verbose', '--min-sdk-version', '35', apk)
-    fingerprint = re.search(r'Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F]+)', signature)
-    require(fingerprint and fingerprint[1].lower() == IDENTITY['certificate_sha256'], 'Unexpected signing certificate')
+    require(certificate_digests(signature) == {IDENTITY['certificate_sha256']}, 'Unexpected signing certificate')
     require('CN=Android Debug' not in signature, 'Ephemeral debug signature is not accepted')
     manifest = run(analyzer, 'manifest', 'print', apk)
     dex = run(analyzer, 'dex', 'packages', '--defined-only', apk)
@@ -110,7 +122,7 @@ def android():
     require(sdk is not None and int(sdk.attrib[ns + 'minSdkVersion']) <= 35, 'APK excludes Android 15')
     require(tree.find('application').attrib.get(ns + 'debuggable', 'false') != 'true', 'Not a release APK')
     require(any(s.attrib.get(ns + 'permission') == 'android.permission.BIND_VPN_SERVICE' and
-                'specialUse' in s.attrib.get(ns + 'foregroundServiceType', '') for s in tree.findall('.//service')), 'VPN foreground service missing')
+                special_use(s.attrib.get(ns + 'foregroundServiceType', '')) for s in tree.findall('.//service')), 'VPN foreground service missing')
     for permission in ['INTERNET', 'CAMERA', 'FOREGROUND_SERVICE_SPECIAL_USE', 'POST_NOTIFICATIONS']:
         require('android.permission.' + permission in manifest, f'Missing {permission}')
     with zipfile.ZipFile(apk) as z:
@@ -147,7 +159,7 @@ def android():
         (folder / name).write_text(content, encoding='utf-8')
     finish(folder, {'package': IDENTITY['package'], 'version_name': tree.attrib.get(ns + 'versionName'),
                     'version_code': tree.attrib.get(ns + 'versionCode'), 'min_sdk': sdk.attrib.get(ns + 'minSdkVersion'),
-                    'target_sdk': sdk.attrib.get(ns + 'targetSdkVersion'), 'certificate_sha256': fingerprint[1].lower(),
+                    'target_sdk': sdk.attrib.get(ns + 'targetSdkVersion'), 'certificate_sha256': IDENTITY['certificate_sha256'],
                     'test_signed': False, 'native_libraries': libs, 'elf_load_alignment': alignment, 'jvm_tests': totals,
                     'firebase_analytics_crashlytics': 'absent from runtime graph, Manifest, defined DEX and native names',
                     'ml_kit': 'barcode native library and bundled models retained; metrics/DataTransport exception remains'})
