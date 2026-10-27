@@ -108,7 +108,7 @@
 +	current, closer := startupTestConnection(t, 1)
 +	c := &Client{conn: current}
 +	c.discardBeforeStartupEpoch(0)
-+	for range 10 {
++	for i := 0; i < 10; i++ {
 +		conn, err := c.offer(context.Background())
 +		if err != nil || conn != current {
 +			t.Fatal("current session was not reused", err)
@@ -154,7 +154,7 @@
 +	old, closer := startupTestConnection(t, 0)
 +	c := &Client{conn: old}
 +	var wg sync.WaitGroup
-+	for range 32 {
++	for i := 0; i < 32; i++ {
 +		wg.Add(1)
 +		go func() { defer wg.Done(); c.discardBeforeStartupEpoch(1) }()
 +	}

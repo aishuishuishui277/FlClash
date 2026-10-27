@@ -18,6 +18,6 @@
     "file": "hysteria2/flclash_startup_epoch_test.go",
     "patch": "flclash_startup_epoch_test.patch",
     "before": null,
-    "after": "695c2e6ed1e743fb041fed0fd7f5853c66d2e942ba4e90e248dd01af23f84032"
+    "after": "6511aabb2ee2cd59b5d966235b56e50f41b05eab630a88948da6e97328927ef3"
   }
 ]
