@@ -182,6 +182,7 @@ internal class ServiceStateMachine(private val host: ServiceStateHost) {
     }
 
     private fun applySharedState() {
+        host.updateStartupVpnMode(sharedState.vpnOptions?.enable == true)
         host.updateNotificationParams(notificationParams(sharedState))
     }
 

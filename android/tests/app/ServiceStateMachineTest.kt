@@ -108,6 +108,7 @@ private class FakeHost(override val scope: CoroutineScope) : ServiceStateHost {
     val toasts = mutableListOf<String>()
     val logs = mutableListOf<String>()
     val notificationParams = mutableListOf<NotificationParams>()
+    val startupVpnModes = mutableListOf<Boolean>()
     var setupCalls = 0
     var startCalls = 0
     var stopCalls = 0
@@ -125,6 +126,10 @@ private class FakeHost(override val scope: CoroutineScope) : ServiceStateHost {
 
     override fun updateNotificationParams(params: NotificationParams) {
         notificationParams += params
+    }
+
+    override fun updateStartupVpnMode(enabled: Boolean) {
+        startupVpnModes += enabled
     }
 
     override fun loadSharedState(): SharedState = storedSharedState
@@ -168,6 +173,25 @@ private class FakeHost(override val scope: CoroutineScope) : ServiceStateHost {
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ServiceStateMachineTest {
+
+    @Test
+    fun `shared state synchronizes startup gate for VPN and proxy modes`() = runTest {
+        val host = FakeHost(backgroundScope)
+        val machine = ServiceStateMachine(host)
+        machine.syncSharedState(configuredState())
+        assertEquals(listOf(true), host.startupVpnModes)
+        machine.syncSharedState(configuredState(enable = false))
+        assertEquals(listOf(true, false), host.startupVpnModes)
+    }
+
+    @Test
+    fun `headless startup applies VPN mode before quick setup`() = runTest {
+        val host = FakeHost(backgroundScope)
+        host.duringSetup = { assertTrue(host.startupVpnModes.last()) }
+        ServiceStateMachine(host).handleStartAction()
+        assertEquals(1, host.setupCalls)
+        assertEquals(1, host.startCalls)
+    }
 
     @Test
     fun `initParams spells the keys the Go wrapper expects`() {

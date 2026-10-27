@@ -1,15 +1,15 @@
-name: Android v0.9.2 startup diagnostic
+name: Android v0.9.2 R2 session startup
 
 on:
   workflow_dispatch:
   push:
-    branches: [experiment-android-startup-recovery]
+    branches: [experiment-android-r2-session-startup]
 
 permissions:
   contents: read
 
 concurrency:
-  group: android-startup-recovery
+  group: android-r2-session-startup
   cancel-in-progress: false
 
 env:
@@ -23,7 +23,7 @@ env:
 
 jobs:
   android:
-    if: github.repository == 'aishuishuishui277/FlClash' && github.ref == 'refs/heads/experiment-android-startup-recovery'
+    if: github.repository == 'aishuishuishui277/FlClash' && github.ref == 'refs/heads/experiment-android-r2-session-startup'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -92,6 +92,19 @@ jobs:
           bundle=core/Clash.Meta/component/ca/ca-certificates.crt
           curl -fsSL --retry 3 -o "$bundle" https://curl.se/ca/cacert-2026-09-25.pem
           echo "a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505  $bundle" | sha256sum -c -
+      - name: Verify locked Go modules and apply audited R2 source hooks
+        working-directory: core
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            go mod download && break
+            if [ "$attempt" = 3 ]; then exit 1; fi
+            sleep $((attempt * 5))
+          done
+          go mod verify
+          python3 ../tool/android-startup/r2_sources.py apply
       - name: Resolve, verify and analyze
         run: |
           set -euo pipefail
@@ -104,14 +117,9 @@ jobs:
           CGO_ENABLED: '0'
         run: |
           set -euo pipefail
-          for attempt in 1 2 3; do
-            go mod download && break
-            if [ "$attempt" = 3 ]; then exit 1; fi
-            sleep $((attempt * 5))
-          done
-          go mod verify
           git diff --exit-code -- go.mod go.sum
           go test -count=1 .
+          CGO_ENABLED=1 go test -race -count=1 startup_health_gate.go startup_health_gate_test.go
       - name: Test VPN adoption, network changes and config compatibility
         run: |
           flutter test --no-pub --reporter expanded test/providers/setup_action_test.dart test/manager/vpn_manager_test.dart test/manager/connectivity_manager_test.dart test/manager/core_manager_test.dart test/models/core_test.dart test/models/tun_test.dart test/common/task_tun_override_test.dart test/common/task_dns_override_test.dart test/plugins/service_test.dart
@@ -121,7 +129,7 @@ jobs:
         run: python3 tool/verify_android_personal.py candidate
       - uses: actions/upload-artifact@v4
         with:
-          name: candidate-android-0.9.2-arm64-${{ github.sha }}
+          name: candidate-android-0.9.2-R2-arm64-${{ github.sha }}
           path: delivery/android-candidate/
           if-no-files-found: error
           retention-days: 30
@@ -141,10 +149,18 @@ jobs:
         run: python3 tool/verify_android_personal.py android
       - uses: actions/upload-artifact@v4
         with:
-          name: android-0.9.2-startup-diagnostic-arm64-${{ github.sha }}
+          name: android-0.9.2-R2-session-startup-arm64-${{ github.sha }}
           path: delivery/android/
           if-no-files-found: error
           retention-days: 30
+      - name: Restore dependency sources before module cache save
+        if: always()
+        working-directory: core
+        run: |
+          set -euo pipefail
+          python3 ../tool/android-startup/r2_sources.py restore
+          go mod verify
+          git diff --exit-code -- go.mod go.sum Clash.Meta/go.mod Clash.Meta/go.sum
       - name: Preserve acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -153,6 +169,7 @@ jobs:
           path: |
             android-gradle-tasks.txt
             android-runtime-dependencies.txt
+            r2-source-provenance.json
             build/**/test-results/**/*.xml
             delivery/android/*.json
             delivery/android/*.txt

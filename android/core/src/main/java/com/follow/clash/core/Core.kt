@@ -9,6 +9,8 @@ import java.net.InetSocketAddress
 import java.net.URI
 
 object Core {
+    fun setStartupVpnMode(enabled: Boolean) = Mobile.setStartupVPNMode(enabled)
+
     fun configureStartupTrace(enabled: Boolean, emit: (String) -> Unit) {
         Mobile.setStartupTraceHandler(
             if (enabled) StartupTraceHandler { data ->

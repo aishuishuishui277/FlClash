@@ -1,0 +1,18 @@
+--- a/adapter/provider/healthcheck.go
++++ b/adapter/provider/healthcheck.go
+@@ -17,0 +18,9 @@
++
++var StartupAutoHealthCheckGate func(context.Context, any, func()) bool
++
++func (hc *HealthCheck) autoCheck() {
++	if StartupAutoHealthCheckGate != nil && !StartupAutoHealthCheckGate(hc.ctx, hc, hc.autoCheck) {
++		return
++	}
++	hc.check()
++}
+@@ -46 +55 @@
+-	go hc.check()
++	go hc.autoCheck()
+@@ -53 +62 @@
+-				hc.check()
++				hc.autoCheck()

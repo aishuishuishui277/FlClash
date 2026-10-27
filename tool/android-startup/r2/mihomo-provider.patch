@@ -1,0 +1,5 @@
+--- a/adapter/provider/provider.go
++++ b/adapter/provider/provider.go
+@@ -110 +110 @@
+-		go bp.healthCheck.check()
++		go bp.healthCheck.autoCheck()

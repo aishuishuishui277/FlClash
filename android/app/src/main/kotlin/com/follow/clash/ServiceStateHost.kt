@@ -6,6 +6,7 @@ import android.net.VpnService
 import android.os.Build
 import androidx.core.content.ContextCompat
 import com.follow.clash.common.GlobalState
+import com.follow.clash.core.Core
 import com.follow.clash.models.SharedState
 import com.follow.clash.plugins.AppPlugin
 import com.follow.clash.plugins.ServicePlugin
@@ -36,6 +37,8 @@ internal interface ServiceStateHost {
     fun showToast(message: String)
 
     fun updateNotificationParams(params: NotificationParams)
+
+    fun updateStartupVpnMode(enabled: Boolean)
 
     fun loadSharedState(): SharedState
 
@@ -102,6 +105,8 @@ internal object AndroidServiceStateHost : ServiceStateHost {
 
     override fun updateNotificationParams(params: NotificationParams) =
         ServiceConfig.updateNotificationParams(params)
+
+    override fun updateStartupVpnMode(enabled: Boolean) = Core.setStartupVpnMode(enabled)
 
     override fun loadSharedState(): SharedState = GlobalState.application.sharedState
 

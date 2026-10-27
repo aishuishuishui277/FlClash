@@ -1,0 +1,16 @@
+--- a/hysteria2/flclash_startup_trace.go
++++ b/hysteria2/flclash_startup_trace.go
+@@ -0,0 +1,13 @@
++package hysteria2
++
++import "sync/atomic"
++
++var ClientLifecycleHook func(event string, clientID, sessionID uint64, err error)
++var startupClientSequence atomic.Uint64
++var startupSessionSequence atomic.Uint64
++
++func startupClientEvent(event string, clientID, sessionID uint64, err error) {
++	if ClientLifecycleHook != nil {
++		ClientLifecycleHook(event, clientID, sessionID, err)
++	}
++}

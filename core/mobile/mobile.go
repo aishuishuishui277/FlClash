@@ -7,6 +7,10 @@ package mobile
 
 import "core"
 
+func SetStartupVPNMode(enabled bool) {
+	core.SetStartupVPNMode(enabled)
+}
+
 type ResultHandler interface {
 	OnResult(data []byte) error
 }

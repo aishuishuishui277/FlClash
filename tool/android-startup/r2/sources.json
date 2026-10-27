@@ -1,0 +1,30 @@
+[
+  {
+    "group": "mihomo",
+    "file": "adapter/provider/healthcheck.go",
+    "patch": "mihomo-healthcheck.patch",
+    "before": "b3108ef1530c2bb28ff75928c64dc7150e68e2bb38f4f82e110ebdaff1801c64",
+    "after": "b25591b7379536571b5349e52bd3588752f58e90943aa607beff0544015ce349"
+  },
+  {
+    "group": "mihomo",
+    "file": "adapter/provider/provider.go",
+    "patch": "mihomo-provider.patch",
+    "before": "69cb24313f68cc457c5f4e45ecab0d1355c1f5d22e3e2ec0559a7d753ee1672f",
+    "after": "1c27b0646aff1d7aef9ff30a4c5759265647237d66aa8933e24e4473eed88ba4"
+  },
+  {
+    "group": "sing-quic",
+    "file": "hysteria2/client.go",
+    "patch": "sing-quic-client.patch",
+    "before": "082b7dbbc88fe48810f35969dbe367aba47ebd251a951ddb1176a70fade76ca7",
+    "after": "bf38d744e466636812d832cc371bc24ab5e90b714d1fe36ed1796a775a11703e"
+  },
+  {
+    "group": "sing-quic",
+    "file": "hysteria2/flclash_startup_trace.go",
+    "patch": "sing-quic-flclash_startup_trace.patch",
+    "before": null,
+    "after": "0b43e1ce297099e0f27d5e249afa4a661a245c82eb9ac1f981ce12eb41faa2d0"
+  }
+]

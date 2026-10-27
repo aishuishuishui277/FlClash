@@ -191,6 +191,7 @@ func handleStopTun() {
 }
 
 func stopTunLocked() {
+	startupTunReady.Store(false)
 	if tunHandler == nil {
 		return
 	}
@@ -210,6 +211,7 @@ func handleStartTun(callbacks TunCallbacks, fd int, stack, address, dns, options
 		callbacks: callbacks,
 	}
 	if tunHandler.start(fd, stack, address, dns, options) {
+		markStartupTunReady()
 		return true
 	}
 	// start() already cleared the handler, so nothing protects sockets from
