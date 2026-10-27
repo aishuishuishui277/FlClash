@@ -1,15 +1,15 @@
-name: Android v0.9.2 R3 session epoch
+name: Android v0.9.2 private release
 
 on:
   workflow_dispatch:
   push:
-    branches: [experiment-android-r3-session-epoch]
+    branches: [personal-android-0.9.2]
 
 permissions:
   contents: read
 
 concurrency:
-  group: android-r3-session-epoch
+  group: android-personal-release-0.9.2
   cancel-in-progress: false
 
 env:
@@ -23,7 +23,7 @@ env:
 
 jobs:
   android:
-    if: github.repository == 'aishuishuishui277/FlClash' && github.ref == 'refs/heads/experiment-android-r3-session-epoch'
+    if: github.repository == 'aishuishuishui277/FlClash' && github.ref == 'refs/heads/personal-android-0.9.2'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -129,7 +129,7 @@ jobs:
         run: python3 tool/verify_android_personal.py candidate
       - uses: actions/upload-artifact@v4
         with:
-          name: candidate-android-0.9.2-R3-arm64-${{ github.sha }}
+          name: candidate-android-0.9.2-personal-release-arm64-${{ github.sha }}
           path: delivery/android-candidate/
           if-no-files-found: error
           retention-days: 30
@@ -149,7 +149,7 @@ jobs:
         run: python3 tool/verify_android_personal.py android
       - uses: actions/upload-artifact@v4
         with:
-          name: android-0.9.2-R3-session-epoch-arm64-${{ github.sha }}
+          name: android-0.9.2-personal-release-arm64-${{ github.sha }}
           path: delivery/android/
           if-no-files-found: error
           retention-days: 30
@@ -165,7 +165,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-0.9.2-evidence-${{ github.sha }}
+          name: android-0.9.2-personal-release-evidence-${{ github.sha }}
           path: |
             android-gradle-tasks.txt
             android-runtime-dependencies.txt

@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BASE = '7fd417fb9a9a277c6a9339a8ac87f907df7c25f7'
 CORE = 'c5062921054902b25215a6a933e72ccd714c9bfa'
 REMOVAL = 'bc72bba981bdb8ec7c235d955eda124cd6c123a3'
+R3 = 'e4c8af2d821e4b054ecb51dd7694497e6563a8b5'
 IDENTITY = json.loads((ROOT / 'tool/android-personal-signing.json').read_text())
 FORBIDDEN = re.compile(
     r'com[./]google[./]firebase[./](?:analytics|crashlytics)(?:[./:]|\b)'
@@ -49,6 +50,15 @@ def certificate_digests(signature):
 
 
 def source():
+    final_files = {'.github/workflows/build.yaml', '.github/workflows/android-personal-0.9.2.yml',
+                   'android/common/src/main/java/com/follow/clash/common/StartupTrace.kt',
+                   'pubspec.yaml', 'tool/verify_android_personal.py', 'tool/android-startup/README.md'}
+    final_changes = set(run('git', 'diff', '--name-only', R3, 'HEAD').splitlines())
+    require(final_changes <= final_files, f'Changes exceed diagnostics-off release: {final_changes - final_files}')
+    trace_file = 'android/common/src/main/java/com/follow/clash/common/StartupTrace.kt'
+    expected_trace = run('git', 'show', f'{R3}:{trace_file}').replace(
+        'get() = runCatching { Log.isLoggable(TAG, Log.DEBUG) }.getOrDefault(false)', 'get() = false')
+    require((ROOT / trace_file).read_text(encoding='utf-8') == expected_trace, 'Startup diagnostics not forcibly disabled')
     allowed = {'.github/workflows/build.yaml', '.github/workflows/android-personal-0.9.2.yml',
                'android/app/build.gradle.kts', 'tool/verify_android_personal.py', 'tool/android-personal-signing.json',
                'android/app/src/main/kotlin/com/follow/clash/ServiceController.kt',
@@ -81,14 +91,14 @@ def source():
                 'a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505', 'CA bundle differs from upstream')
     pubspec = (ROOT / 'pubspec.yaml').read_text()
     require(pubspec == run('git', 'show', f'{BASE}:pubspec.yaml').replace(
-        'version: 0.9.2+2026102401', 'version: 0.9.2+2026102703'), 'Changes exceed build-number metadata')
+        'version: 0.9.2+2026102401', 'version: 0.9.2+2026102801'), 'Changes exceed build-number metadata')
     require(pubspec.count('build_assets: true') == 2 and 'build_assets: false' not in pubspec, 'Native hooks disabled')
     require(not (ROOT / 'android/app/google-services.json').exists(), 'Firebase config returned')
     for file in (ROOT / 'android').rglob('*'):
         if file.suffix in ['.kts', '.toml'] and 'build' not in file.parts:
             content = file.read_text()
             require(not FORBIDDEN.search(content) and 'com.google.gms.google-services' not in content, f'Firebase build dependency in {file}')
-    print('R3 first-VPN Hy2 epoch invalidation; pins, native hooks and Firebase removal preserved')
+    print('Diagnostics forced off; accepted R3 Go sources, patches, pins and native hooks unchanged')
 
 
 def apk_file():
@@ -99,8 +109,13 @@ def apk_file():
 
 def finish(folder, report):
     report.update(commit=run('git', 'rev-parse', 'HEAD').strip(), base=BASE, core_commit=CORE,
-                  device_network_tests='not performed; vivo Y300i Android 15 user acceptance required',
-                  purpose='R3 Hy2 startup epoch experiment; device acceptance pending')
+                  runtime_base=R3, startup_diagnostics='forced off; DEBUG log property cannot enable startup capture',
+                  r3_device_acceptance='user accepted three cold starts within 15s and Google Play; one captured run VPN-to-proxy-HTTPS 2.856s',
+                  user_confirmed_regressions=['Hy2 OFBS and server-side port hopping evidence', 'Wi-Fi/mobile switching',
+                                              'VPN off/on', 'background/screen-off recovery'],
+                  unreported_regressions=['Reality real HTTPS', 'ML Kit scan', 'explicit HTTP proxy', 'battery/high-frequency redial'],
+                  final_apk_device_tests='not yet performed on this diagnostics-off APK',
+                  purpose='private Android release retaining accepted R3 behavior; no additional network changes')
     (folder / 'validation.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
     (folder / 'SHA256SUMS.txt').write_text(''.join(f'{digest(f.read_bytes())}  {f.name}\n'
         for f in sorted(folder.iterdir()) if f.is_file() and f.name != 'SHA256SUMS.txt'), encoding='utf-8')
@@ -172,10 +187,10 @@ def android():
     require(totals['tests'] > 0 and totals['failures'] == totals['errors'] == 0, f'JVM tests failed: {totals}')
     folder = ROOT / 'delivery/android'
     folder.mkdir(parents=True, exist_ok=False)
-    require(int(tree.attrib[ns + 'versionCode']) > 2026104702, 'Version code does not permit upgrade from R2')
-    shutil.copy2(apk, folder / 'FlClash-v0.9.2-personal-android-arm64-R3-session-epoch.apk')
+    require(int(tree.attrib[ns + 'versionCode']) > 2026104703, 'Version code does not permit upgrade from R3')
+    shutil.copy2(apk, folder / 'FlClash-v0.9.2-personal-android-arm64-release.apk')
     for file in (ROOT / 'tool/android-startup').iterdir():
-        if file.name in {'README.md', 'Measure-AndroidStartup.ps1'}:
+        if file.name == 'README.md':
             shutil.copy2(file, folder / file.name)
     shutil.copy2(ROOT / 'r3-source-provenance.json', folder)
     shutil.copy2(ROOT / 'r3-epoch-tests.txt', folder)

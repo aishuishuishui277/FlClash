@@ -7,7 +7,7 @@ object StartupTrace {
     private const val TAG = "FlClashStartup"
 
     val enabled: Boolean
-        get() = runCatching { Log.isLoggable(TAG, Log.DEBUG) }.getOrDefault(false)
+        get() = false
 
     fun event(name: String, code: Long = 0, value: Long = 0) {
         if (!enabled) return
