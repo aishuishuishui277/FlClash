@@ -11,6 +11,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = '7fd417fb9a9a277c6a9339a8ac87f907df7c25f7'
+EXPERIMENT_BASE = '611de39561ee19bb3c5aa9b8b5bf4284a083c485'
 CORE = 'c5062921054902b25215a6a933e72ccd714c9bfa'
 REMOVAL = 'bc72bba981bdb8ec7c235d955eda124cd6c123a3'
 IDENTITY = json.loads((ROOT / 'tool/android-personal-signing.json').read_text())
@@ -59,9 +60,25 @@ def source():
                'android/service/src/main/java/com/follow/clash/service/VpnService.kt',
                'core/config.go', 'core/connection.go', 'core/delay.go', 'core/hooks.go', 'core/lib.go',
                'core/lifecycle.go', 'core/mobile/mobile.go', 'core/startup_trace.go', 'core/startup_trace_test.go',
-               'tool/android-startup/Measure-AndroidStartup.ps1', 'tool/android-startup/README.md', 'pubspec.yaml'}
+               'tool/android-startup/Measure-AndroidStartup.ps1', 'tool/android-startup/README.md', 'pubspec.yaml',
+               'core/tun_protect_regression_test.go'}
     changed = set(run('git', 'diff', '--name-only', BASE, 'HEAD').splitlines())
     require(changed <= allowed, f'Unexpected changes: {changed - allowed}')
+    r1_allowed = {'.github/workflows/build.yaml', '.github/workflows/android-personal-0.9.2.yml',
+                  'core/lib.go', 'core/tun_protect_regression_test.go', 'pubspec.yaml',
+                  'tool/verify_android_personal.py', 'tool/android-startup/README.md'}
+    r1_changed = set(run('git', 'diff', '--name-only', EXPERIMENT_BASE, 'HEAD').splitlines())
+    require(r1_changed <= r1_allowed, f'R1 exceeds the protection-window experiment: {r1_changed - r1_allowed}')
+    original_hook = run('git', 'show', f'{EXPERIMENT_BASE}:core/lib.go')
+    expected_hook = original_hook.replace(
+        '// lock deadlocks the start outright. Nothing is lost by dropping it: both\n\t// hooks return early until th.listener is set, which is below.',
+        '// lock deadlocks the start outright.', 1).replace(
+        'if th.listener == nil || th.callbacks == nil {', 'if th.callbacks == nil {', 1).replace(
+        '\tprotected := th.callbacks.Protect(fd)',
+        '\tif th.listener == nil {\n\t\ttraceStartupSocket("protect_before_tun_ready", 0, int64(fd))\n\t}\n\tprotected := th.callbacks.Protect(fd)', 1).replace(
+        '\tactiveTunHandler.Store(th)',
+        '\tactiveTunHandler.Store(th)\n\ttraceStartup("socket_hook_ready", boolTrace(th.callbacks != nil), boolTrace(th.listener != nil))', 1)
+    require((ROOT / 'core/lib.go').read_text(encoding='utf-8') == expected_hook, 'R1 runtime diff exceeds the approved hook window')
     subprocess.run(['git', 'merge-base', '--is-ancestor', REMOVAL, 'HEAD'], cwd=ROOT, check=True)
     original = run('git', 'show', f'{BASE}:android/app/build.gradle.kts')
     expected = original.replace('signingConfig = signingConfigs.getByName("release")',
@@ -75,14 +92,14 @@ def source():
                 'a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505', 'CA bundle differs from upstream')
     pubspec = (ROOT / 'pubspec.yaml').read_text()
     require(pubspec == run('git', 'show', f'{BASE}:pubspec.yaml').replace(
-        'version: 0.9.2+2026102401', 'version: 0.9.2+2026102601'), 'Changes exceed build-number metadata')
+        'version: 0.9.2+2026102401', 'version: 0.9.2+2026102701'), 'Changes exceed build-number metadata')
     require(pubspec.count('build_assets: true') == 2 and 'build_assets: false' not in pubspec, 'Native hooks disabled')
     require(not (ROOT / 'android/app/google-services.json').exists(), 'Firebase config returned')
     for file in (ROOT / 'android').rglob('*'):
         if file.suffix in ['.kts', '.toml'] and 'build' not in file.parts:
             content = file.read_text()
             require(not FORBIDDEN.search(content) and 'com.google.gms.google-services' not in content, f'Firebase build dependency in {file}')
-    print('Official v0.9.2 with opt-in startup tracing; pins, native hooks and Firebase removal preserved')
+    print('R1 restricted to the Android protect guard; pins, native hooks and Firebase removal preserved')
 
 
 def apk_file():
@@ -94,7 +111,9 @@ def apk_file():
 def finish(folder, report):
     report.update(commit=run('git', 'rev-parse', 'HEAD').strip(), base=BASE, core_commit=CORE,
                   device_network_tests='not performed; vivo Y300i Android 15 user acceptance required',
-                  purpose='diagnostic only; no network recovery fix implemented or verified')
+                  purpose='R1-hook-window experimental candidate; device outcome unverified',
+                  experiment_baseline=EXPERIMENT_BASE, round='R1', behavior_candidates_built=1,
+                  user_device_acceptance='pending; stop after APK delivery, do not start R2')
     (folder / 'validation.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
     (folder / 'SHA256SUMS.txt').write_text(''.join(f'{digest(f.read_bytes())}  {f.name}\n'
         for f in sorted(folder.iterdir()) if f.is_file() and f.name != 'SHA256SUMS.txt'), encoding='utf-8')
@@ -166,8 +185,8 @@ def android():
     require(totals['tests'] > 0 and totals['failures'] == totals['errors'] == 0, f'JVM tests failed: {totals}')
     folder = ROOT / 'delivery/android'
     folder.mkdir(parents=True, exist_ok=False)
-    require(int(tree.attrib[ns + 'versionCode']) > 2026104401, 'Version code does not permit upgrade from prior personal APK')
-    shutil.copy2(apk, folder / 'FlClash-v0.9.2-personal-android-arm64-startup-diagnostic.apk')
+    require(int(tree.attrib[ns + 'versionCode']) > 2026104601, 'Version code does not permit upgrade from diagnostic APK')
+    shutil.copy2(apk, folder / 'FlClash-v0.9.2-personal-android-arm64-R1-hook-window.apk')
     for file in (ROOT / 'tool/android-startup').iterdir():
         if file.is_file():
             shutil.copy2(file, folder / file.name)

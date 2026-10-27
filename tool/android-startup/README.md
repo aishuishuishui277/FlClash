@@ -1,14 +1,20 @@
-# Android 启动诊断（未修复候选）
+# R1-hook-window：Android 启动实验候选
 
-此包不更改网络行为。包名及签名沿用上一版私人 Android 0.9.2，可覆盖安装。默认不启用诊断；不需要 Root，不设置固定等待，不自动重启 VPN。
+本轮只取消 Android protect 对 TUN Listener 已赋值的依赖；保护回调仍须先在系统 VPN establish 成功后注册。未证明它是手机故障根因，不能标记稳定或修复成功。包名及签名沿用上一版私人 Android 0.9.2，可覆盖安装。默认不启用诊断；不需要 Root，不设置固定等待，不自动重启 VPN。
+
+本轮只测试 R1，构建交付后等待实机结果，不能自动开始 R2。三轮均从 611de395 独立起步，不叠加失败补丁。
+
+新增事件：`socket_hook_ready` 的 code=1 表示有效保护回调已注册，value=0 表示 Listener 尚未赋值；`protect_before_tun_ready` 表示这个窗口内的 Socket 将实际调用 protect，同 FD 的后续 `protect_result` 给出结果。R1 的 `protect_skipped` 仅表示回调缺失，不能把 hook 安装前不可观测的 Socket 当作已经保护。TCP/UDP 仍由 `socket_create` 的 code=1/2 区分。若失败但未出现 `protect_before_tun_ready`，只能说明本轮未命中 H1 窗口，不能排除其他 Android 保护路径。
+
+保持与基线一致的探测参数：240 秒、连接超时 4 秒、每次最多 8 秒，目标和规则不变。只在待测节点承载真实手机 HTTPS 的前提下评价结果。一次有效失败即可报告；首测成功再做两次完全冷启动，每次 VPN 后约 15 秒内成功、持续两分钟无断流或异常重启，才进入最终回归。电脑 CONNECT 成功或 DIRECT 成功不算修复通过。
 
 1. 安装 APK，备份现有配置。电脑安装官方 Android platform-tools，手机开启 USB 调试并授权；PowerShell 7 中确认 `adb devices`。
-2. 保持同一节点、DNS、规则，手机混合端口默认 7890。运行 `pwsh -File ./Measure-AndroidStartup.ps1 -Adb C:/platform-tools/adb.exe`，多设备加 `-Serial`。脚本设置诊断开关后，手动退出并重新打开 App，确保初始化被记录。
-3. 按电脑 S 键，随即点手机首页 VPN 开关。第一轮等待满 120 秒，不补点；同时用手机浏览器访问 HTTPS，记录结果。电脑探测为 ADB 转发后的显式 HTTP 代理，不能代替手机经 TUN 的浏览器实测。
-4. 新开一轮：相同条件启动，约 60 秒时按 C，随后操作首页开关；明确记录点一次是关闭还是重开，以及第二次开启的时刻（T 标记）。脚本仅记时间，从不操作 VPN。
-5. 再分别记录 VPN 关闭/开启、Wi-Fi/移动数据切换。Hy2 和 Reality 分开测试。结束可按 Q；回传每轮生成目录及手机浏览器结果，不需要导出订阅或完整配置。
+2. 保持同一节点、DNS、规则，手机混合端口默认 7890。运行 `pwsh -File ./Measure-AndroidStartup.ps1 -Adb C:/platform-tools/platform-tools/adb.exe -Seconds 240`，多设备加 `-Serial`。脚本设置诊断开关后，完全停止并重新启动 App/VPN，确保初始化被记录。手机未连接前无法通过 ADB 备份配置；先在 App 内导出，覆盖升级不要清除数据。
+3. 开启手机首页 VPN 开关，同时用手机浏览器访问 HTTPS，记录首次成功时刻，至少观察 120 秒，全程不补点。App 的 `ui_start_command` 与 `vpn_established` 提供启动标记，电脑 S 键可不操作。电脑探测为 ADB 转发后的显式 HTTP 代理，不能代替手机经 TUN 的浏览器实测。
+4. 若仍明显复现，一次有效失败即可提交结果；若首测成功，再完成两次相同条件的完全冷启动，逐次记录耗时，不以平均值代替。
+5. 本次构建后停止，等待实机结果；只有三次冷启动通过，才安排 Reality、切网、后台、端口跳跃及扫码等最终回归。回传每轮生成目录及手机浏览器结果，不需要导出订阅或完整配置给他人。
 
-脚本只保存 `FlClashStartup` 标签及固定字段的 curl 统计；不保存原始核心日志、响应正文、节点地址、密码、UUID、Token、私钥或 Wi-Fi SSID。若厂商禁止设置调试属性，脚本会报错；不要 Root。结束恢复原日志属性（原来为空则设 SILENT），重新打开 App 后停止 Go 日志订阅；若脚本被强制终止，执行 `adb shell setprop log.tag.FlClashStartup SILENT` 并重新打开 App。
+脚本只保存 `FlClashStartup` 标签及固定字段的 curl 统计；不保存原始核心日志、响应正文、节点地址、密码、UUID、Token、私钥或 Wi-Fi SSID。若厂商禁止设置调试属性，脚本会报错；不要 Root。结束恢复原日志属性（原来为空则设 SILENT），完全停止并重启 App 后停止 Go 日志订阅；若脚本被强制终止，执行 `adb shell setprop log.tag.FlClashStartup SILENT` 并完全停止、重启 App。仅返回前台不保证重新初始化。
 
 `time_ms` 是各端 UTC 毫秒，Logcat 前缀为手机时间；`elapsed_ms` 为手机开机后的单调时间。电脑标记和探测属于电脑时钟，比较前确认两端时间同步，不能混用两端时间算精确毫秒差。每个 HTTPS 样本最多 8 秒，间隔至少 2 秒；恢复时间是首次成功样本的上界，不能推导精确握手开始时刻。
 

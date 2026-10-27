@@ -53,8 +53,7 @@ func (th *TunHandler) start(fd int, stack, address, dns, options string) bool {
 	// t.Start runs outside th.mu on purpose. The hook is live from initHook
 	// onwards, and a socket opened anywhere inside Start reaches handleProtect
 	// on this very goroutine — an RLock taken while this one holds the write
-	// lock deadlocks the start outright. Nothing is lost by dropping it: both
-	// hooks return early until th.listener is set, which is below.
+	// lock deadlocks the start outright.
 	tunListener := t.Start(fd, stack, address, dns, options)
 
 	th.mu.Lock()
@@ -92,9 +91,12 @@ func (th *TunHandler) handleProtect(fd int) {
 	th.mu.RLock()
 	defer th.mu.RUnlock()
 
-	if th.listener == nil || th.callbacks == nil {
+	if th.callbacks == nil {
 		traceStartupSocket("protect_skipped", boolTrace(th.listener != nil), int64(fd))
 		return
+	}
+	if th.listener == nil {
+		traceStartupSocket("protect_before_tun_ready", 0, int64(fd))
 	}
 	protected := th.callbacks.Protect(fd)
 	traceStartupSocket("protect_result", boolTrace(protected), int64(fd))
@@ -169,6 +171,7 @@ func installHooks() {
 func (th *TunHandler) initHook() {
 	installHooks()
 	activeTunHandler.Store(th)
+	traceStartup("socket_hook_ready", boolTrace(th.callbacks != nil), boolTrace(th.listener != nil))
 }
 
 // Swap the handler, never the hook: mihomo nil-checks DefaultSocketHook once and

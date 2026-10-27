@@ -6,6 +6,7 @@ on:
       - '**'
       - '!experiment-android-0.9.2'
       - '!experiment-android-startup-recovery'
+      - '!experiment-android-r1-hook-window'
     tags:
       - 'v*'
   workflow_dispatch:
