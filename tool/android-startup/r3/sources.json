@@ -1,0 +1,23 @@
+[
+  {
+    "group": "sing-quic",
+    "file": "hysteria2/client.go",
+    "patch": "client.patch",
+    "before": "082b7dbbc88fe48810f35969dbe367aba47ebd251a951ddb1176a70fade76ca7",
+    "after": "9aefc235f53cd8b7fa0cc8e910e31007a6d2c0cdfb90ae0c5c0e90d569acffee"
+  },
+  {
+    "group": "sing-quic",
+    "file": "hysteria2/flclash_startup_epoch.go",
+    "patch": "flclash_startup_epoch.patch",
+    "before": null,
+    "after": "cfcf60a8f0087f42e3aef2df0bf9a1c09b307024b2221b3f4eed588ae2efe8a0"
+  },
+  {
+    "group": "sing-quic",
+    "file": "hysteria2/flclash_startup_epoch_test.go",
+    "patch": "flclash_startup_epoch_test.patch",
+    "before": null,
+    "after": "695c2e6ed1e743fb041fed0fd7f5853c66d2e942ba4e90e248dd01af23f84032"
+  }
+]

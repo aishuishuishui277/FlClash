@@ -1,0 +1,83 @@
+--- a/hysteria2/client.go
++++ b/hysteria2/client.go
+@@ -56,0 +57 @@
++	startupTraceID     uint64
+@@ -142,0 +144 @@
++		startupTraceID:     startupClientSequence.Add(1),
+@@ -205 +207 @@
+-func (c *Client) offer(ctx context.Context) (*clientQUICConnection, error) {
++func (c *Client) offerCurrent(ctx context.Context) (*clientQUICConnection, error) {
+@@ -209,0 +212 @@
++		startupClientEvent("session_reuse_candidate", c.startupTraceID, conn.startupSessionID, conn.startupEpoch, nil)
+@@ -227,0 +231 @@
++		startupClientEvent("offer_wait", c.startupTraceID, 0, pending.startupEpoch, nil)
+@@ -246,2 +250,3 @@
+-		done:   make(chan struct{}),
+-		cancel: cancel,
++		startupEpoch: startupEpoch(),
++		done:         make(chan struct{}),
++		cancel:       cancel,
+@@ -500 +505,8 @@
+-func (c *Client) authenticateAndWrap(ctx context.Context, packetDialer qtls.PacketDialer, serverAddr M.Socksaddr) (*clientQUICConnection, error) {
++func (c *Client) authenticateAndWrap(ctx context.Context, packetDialer qtls.PacketDialer, serverAddr M.Socksaddr) (result *clientQUICConnection, resultErr error) {
++	sessionID, epoch := startupSessionSequence.Add(1), startupEpoch()
++	startupClientEvent("session_begin", c.startupTraceID, sessionID, epoch, nil)
++	defer func() {
++		if resultErr != nil {
++			startupClientEvent("session_failed", c.startupTraceID, sessionID, epoch, resultErr)
++		}
++	}()
+@@ -562,5 +574,8 @@
+-		quicConn:    quicConn,
+-		rawConn:     packetConn,
+-		connDone:    make(chan struct{}),
+-		udpDisabled: !authResponse.UDPEnabled,
+-		udpConnMap:  make(map[uint32]*udpPacketConn),
++		startupClientID:  c.startupTraceID,
++		startupSessionID: sessionID,
++		startupEpoch:     epoch,
++		quicConn:         quicConn,
++		rawConn:          packetConn,
++		connDone:         make(chan struct{}),
++		udpDisabled:      !authResponse.UDPEnabled,
++		udpConnMap:       make(map[uint32]*udpPacketConn),
+@@ -577,0 +593 @@
++	startupClientEvent("session_ready", c.startupTraceID, sessionID, epoch, nil)
+@@ -649,6 +665,7 @@
+-	done      chan struct{}
+-	cancel    func(error)
+-	conn      *clientQUICConnection
+-	err       error
+-	discarded bool
+-	cause     error
++	startupEpoch uint64
++	done         chan struct{}
++	cancel       func(error)
++	conn         *clientQUICConnection
++	err          error
++	discarded    bool
++	cause        error
+@@ -658,9 +675,12 @@
+-	quicConn     *quic.Conn
+-	rawConn      io.Closer
+-	closeOnce    sync.Once
+-	connDone     chan struct{}
+-	connErr      error
+-	udpDisabled  bool
+-	udpAccess    sync.RWMutex
+-	udpConnMap   map[uint32]*udpPacketConn
+-	udpSessionID uint32
++	startupClientID  uint64
++	startupSessionID uint64
++	startupEpoch     uint64
++	quicConn         *quic.Conn
++	rawConn          io.Closer
++	closeOnce        sync.Once
++	connDone         chan struct{}
++	connErr          error
++	udpDisabled      bool
++	udpAccess        sync.RWMutex
++	udpConnMap       map[uint32]*udpPacketConn
++	udpSessionID     uint32
+@@ -684,0 +705 @@
++		startupClientEvent("session_closed", c.startupClientID, c.startupSessionID, c.startupEpoch, err)

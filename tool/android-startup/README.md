@@ -1,21 +1,29 @@
-# Android 启动诊断（未修复候选）
+# R3-final-attempt：首次 Android VPN 边界的 Hy2 会话代际实验
 
-此包不更改网络行为。包名及签名沿用上一版私人 Android 0.9.2，可覆盖安装。默认不启用诊断；不需要 Root，不设置固定等待，不自动重启 VPN。
+最后一轮，仅采用方案 B。基于诊断提交 611de395，不叠加 R1 保护条件修改或 R2 健康检查门控。没有创建门控；不改变配置、DNS、接口选择、OFBS、端口跳跃、QUIC 超时或正常重试。
 
-1. 安装 APK，备份现有配置。电脑安装官方 Android platform-tools，手机开启 USB 调试并授权；PowerShell 7 中确认 `adb devices`。
-2. 保持同一节点、DNS、规则，手机混合端口默认 7890。运行 `pwsh -File ./Measure-AndroidStartup.ps1 -Adb C:/platform-tools/adb.exe`，多设备加 `-Serial`。脚本设置诊断开关后，手动退出并重新打开 App，确保初始化被记录。
-3. 按电脑 S 键，随即点手机首页 VPN 开关。第一轮等待满 120 秒，不补点；同时用手机浏览器访问 HTTPS，记录结果。电脑探测为 ADB 转发后的显式 HTTP 代理，不能代替手机经 TUN 的浏览器实测。
-4. 新开一轮：相同条件启动，约 60 秒时按 C，随后操作首页开关；明确记录点一次是关闭还是重开，以及第二次开启的时刻（T 标记）。脚本仅记时间，从不操作 VPN。
-5. 再分别记录 VPN 关闭/开启、Wi-Fi/移动数据切换。Hy2 和 Reality 分开测试。结束可按 Q；回传每轮生成目录及手机浏览器结果，不需要导出订阅或完整配置。
+首次 TUN 启动成功、Listener/保护回调已就绪后，代际由 0 切换为 1。之后第一次 Hy2 offer 只移除该客户端的旧代际会话/旧共享建连尝试，保留新代际对象；新请求重新拨号，旧异步结果不能覆盖新状态。实际关闭发生在下一次 offer，不提前遍历/清理所有客户端。已经在途的旧流可能失败，不能宣称无缝迁移。代际在同一进程内不重复切换；VPN 关闭/开启、网络切换不触发周期性清理。非 VPN 模式代际一直为 0。非 Android 不安装代际钩子。
 
-脚本只保存 `FlClashStartup` 标签及固定字段的 curl 统计；不保存原始核心日志、响应正文、节点地址、密码、UUID、Token、私钥或 Wi-Fi SSID。若厂商禁止设置调试属性，脚本会报错；不要 Root。结束恢复原日志属性（原来为空则设 SILENT），重新打开 App 后停止 Go 日志订阅；若脚本被强制终止，执行 `adb shell setprop log.tag.FlClashStartup SILENT` 并重新打开 App。
+包名 com.follow.clash.personal，持久私人签名沿用 R1/R2，目标 versionCode 2026104703，可覆盖 R2。安装前导出配置并保留旧 APK；回滚低版本通常需卸载再安装、导入配置。独立包名的 v0.9.0 私人版可并存，但不要同时运行两个 VPN。
 
-`time_ms` 是各端 UTC 毫秒，Logcat 前缀为手机时间；`elapsed_ms` 为手机开机后的单调时间。电脑标记和探测属于电脑时钟，比较前确认两端时间同步，不能混用两端时间算精确毫秒差。每个 HTTPS 样本最多 8 秒，间隔至少 2 秒；恢复时间是首次成功样本的上界，不能推导精确握手开始时刻。
+## 手机验收
 
-事件：`ui_start_command/ui_stop_command` 是 Flutter 提交服务命令，不是物理触屏时刻；`core_init` 是初始化方法入口，不是 OS 进程创建；`config_apply_*` 为配置解析/应用；`mixed_listener_ready` 是实际监听成功日志；`vpn_establish_begin/vpn_established` 包围系统 establish（路由就绪只能得到区间）；`go_tun_start_*` 是 FD 接入核心；`network_*`、`default_network`、`underlying_network_changed` 为系统回调/观察结果；`protect_result=1` 表示 protect 成功，0 表示失败；`protect_skipped` 表示已有 hook 但保护条件未满足。首次 hook 安装前的 Socket 不可观测，不能以没有记录证明没有拨号或未保护。
+1. 同手机、同 Wi-Fi、同 Hy2、DNS、规则和端口范围，完全退出 App 与 VPN。沿用原 Measure-AndroidStartup.ps1，例如 `pwsh -File ./Measure-AndroidStartup.ps1 -Adb C:/platform-tools/platform-tools/adb.exe`。手机授权 USB 调试即可，不需 Root。脚本开启诊断后按提示重新打开 App。
+2. 按电脑 S 键并启动手机 VPN，不再补点，至少观察 120 秒。同时用手机完成真实 HTTPS，记录首次成功时刻，确认流量确实命中待测节点。DIRECT、CONNECT 200、会话 ready 或延迟测试不构成成功。
+3. 首次冷启动若仍出现明显几十秒故障，直接判定 R3 失败，停止 v0.9.2 实验并回到已验收的 v0.9.0；不增加候选、不要求额外抓包。
+4. 首测成功后再做两次完全冷启动。每次要求 VPN 建立后约 15 秒内真实 HTTPS 成功、连续两分钟无断流、无 VPN 循环重启或高频拨号。逐次保留耗时，不用平均值掩盖失败。
+5. 只有三次全部通过，才验收 Reality、Hy2 OFBS/服务器端端口跳跃证据、Wi-Fi/移动数据切换、VPN 开关、后台/熄屏、扫码、显式代理及耗电。构建交付后 Codex 停止等待结果。
 
-网络 flags：Wi-Fi=1、移动=2、VPN=4、VALIDATED=8（按位组合），value 为网络 handle。`config_network_flags`：auto-route=1、auto-detect-interface=2、非空 interface-name=4、配置 TUN enable=8；value 为 mixed-port。Android 实际 FD TUN 在未改动的 `core/tun/tun.go` 中另行强制 auto-route/auto-detect-interface=false，由系统 VPN 安装路由；此配置事件不能冒充实际接口绑定证明。
+电脑样本是 ADB 转发后的 HTTP 代理探测，不能代替手机经 TUN 的真实 HTTPS，也不能独立排除 DIRECT。目标仍为 `https://1.1.1.1/cdn-cgi/trace`，不改超时或探测条件。
 
-`delay_probe_*` 是节点测速；`flow_*_connected` 是核心流建立，不代表外部 TLS 完成。`https_proxy_probe.success=true` 才证明该电脑样本通过手机 HTTP 代理完成 CONNECT、TLS 和 HTTPS 200；手机浏览器结果另外记录。探测目标是 `https://1.1.1.1/cdn-cgi/trace`，确认现有规则将其送到待测节点；若命中 DIRECT，不能证明节点可用。DNS 事件只有匿名查询/回答标记，不能与某个节点域名精确配对。核心日志不暴露每次 Hy2 内部 UDP 包及握手边界；需要服务器端脱敏时间戳/抓包才能确认首次拨号、握手和端口跳跃。
+## 日志判读
 
-错误 code：1=回环文本，2=超时，3=无路由，4=拒绝连接，5=TLS/握手/证书，6=EOF，7=DNS，8=其他。均为粗分类，不能作为完整原始错误；只有 `dialer_loop_detected` 对应核心现有回环检测的直接事件。`trace_dropped` 表示队列溢出，`socket_trace_limit` 表示保护/Socket 细节达到 512 条，此后事件缺失不能用作否定证据。
+- `vpn_established`：Android VPN Builder establish 成功。`startup_tun_ready`：原 Go TUN 启动成功，Listener/保护回调可用，未证明外网可达。`hy2_vpn_epoch` code=1 表示首次推进代际，value=1；后续启动 code=0、value=1，不重新失效会话。
+- `hy2_session_begin/ready`：QUIC+认证尝试开始/认证成功；code=匿名 client ID，value=匿名 session ID。对应 `_epoch` code=该对象创建代际，value=session ID；`_vpn` code=当时 TUN 就绪状态。真正 VPN establish 状态应结合其时间戳，不能将 `_vpn=0` 一律解释为系统 VPN 尚未建立。
+- `hy2_session_reuse_candidate`：原 offer 内部发现 active 会话，尚未通过 R3 代际校验。`hy2_session_selected` 才是通过校验、将返回给上层的会话，须检查其 `_epoch`。边界期间的 candidate 可能随后失效，不等于已交付给上层复用。
+- `hy2_session_invalidated`：旧代际传输在后续 offer 被移除并关闭。`hy2_offer_invalidated`：仅旧共享建连尝试被取消，session ID=0；`hy2_offer_wait` 表示共享等待。`hy2_session_closed/failed` 有对应粗错误分类。ready/selected 均不等于外部 TLS 或真实 HTTPS 成功。
+- `socket_create` code=1/2 为 TCP/UDP，value=FD；`protect_result` code=1/0 为成功/失败、value=FD。新会话应与新 UDP Socket、protect 及真实 HTTPS 时间结合核对。没有实际底层 Network 绑定证据，不能把 protect 成功说成接口选择已被证明正确。
+- 错误分类：1回环文本、2超时、3无路由、4拒绝连接、5TLS/握手/证书、6EOF、7DNS、8其他。R3 主动失效使用固定脱敏原因，归为8，不是等待到原超时。日志不含节点名称、地址、密码、UUID、Token 或密钥。
+- `trace_dropped`/`socket_trace_limit` 表示事件可能缺失，不能以缺少事件单独证明未发生。DNS/flow/节点测速等原诊断仍保留；`https_proxy_probe.success=true` 只证明该电脑样本完成 CONNECT、TLS 和 HTTPS 200。
+
+构建时只对锁定 sing-quic 施加 sources.json 中声明的源码补丁，版本及 go.mod/go.sum 不变；CI 在缓存保存前恢复源码并再次 go mod verify。mihomo 子模块没有行为补丁。回归测试使用回环 QUIC 验证旧/新会话、并发、边界竞争与晚到结果，不冒充 Android protect 或手机联网实测。

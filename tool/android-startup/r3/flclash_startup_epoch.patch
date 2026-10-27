@@ -1,0 +1,79 @@
+--- a/hysteria2/flclash_startup_epoch.go
++++ b/hysteria2/flclash_startup_epoch.go
+@@ -0,0 +1,76 @@
++package hysteria2
++
++import (
++	"context"
++	"errors"
++	"sync/atomic"
++)
++
++var ClientStartupEpoch func() uint64
++var ClientLifecycleHook func(event string, clientID, sessionID, epoch uint64, err error)
++var startupClientSequence atomic.Uint64
++var startupSessionSequence atomic.Uint64
++var errStartupEpochChanged = errors.New("Android VPN startup epoch advanced")
++
++func startupEpoch() uint64 {
++	if ClientStartupEpoch != nil {
++		return ClientStartupEpoch()
++	}
++	return 0
++}
++
++func startupClientEvent(event string, clientID, sessionID, epoch uint64, err error) {
++	if ClientLifecycleHook != nil {
++		ClientLifecycleHook(event, clientID, sessionID, epoch, err)
++	}
++}
++
++func (c *Client) offer(ctx context.Context) (*clientQUICConnection, error) {
++	if ClientStartupEpoch == nil {
++		return c.offerCurrent(ctx)
++	}
++	for {
++		if err := ctx.Err(); err != nil {
++			return nil, err
++		}
++		c.discardBeforeStartupEpoch(startupEpoch())
++		conn, err := c.offerCurrent(ctx)
++		if errors.Is(err, errStartupEpochChanged) {
++			continue
++		}
++		if err != nil {
++			return nil, err
++		}
++		if conn.startupEpoch >= startupEpoch() {
++			startupClientEvent("session_selected", c.startupTraceID, conn.startupSessionID, conn.startupEpoch, nil)
++			return conn, nil
++		}
++	}
++}
++
++func (c *Client) discardBeforeStartupEpoch(epoch uint64) {
++	c.connAccess.Lock()
++	conn := c.conn
++	if conn != nil && conn.startupEpoch < epoch {
++		c.conn = nil
++	} else {
++		conn = nil
++	}
++	pending := c.pending
++	if pending != nil && pending.startupEpoch < epoch {
++		pending.discarded = true
++		pending.cause = errStartupEpochChanged
++		c.pending = nil
++	} else {
++		pending = nil
++	}
++	c.connAccess.Unlock()
++	if pending != nil {
++		startupClientEvent("offer_invalidated", c.startupTraceID, 0, pending.startupEpoch, nil)
++		pending.cancel(errStartupEpochChanged)
++	}
++	if conn != nil {
++		startupClientEvent("session_invalidated", c.startupTraceID, conn.startupSessionID, conn.startupEpoch, nil)
++		conn.closeWithError(errStartupEpochChanged)
++	}
++}

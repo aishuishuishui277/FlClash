@@ -1,0 +1,196 @@
+--- a/hysteria2/flclash_startup_epoch_test.go
++++ b/hysteria2/flclash_startup_epoch_test.go
+@@ -0,0 +1,193 @@
++package hysteria2
++
++import (
++	"context"
++	"crypto/ecdsa"
++	"crypto/elliptic"
++	"crypto/rand"
++	"crypto/x509"
++	"errors"
++	"math/big"
++	"net"
++	"sync"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/metacubex/quic-go"
++	qtls "github.com/metacubex/sing-quic"
++	"github.com/metacubex/tls"
++)
++
++type startupTestCloser struct{ count atomic.Int32 }
++
++func (c *startupTestCloser) Close() error {
++	c.count.Add(1)
++	return nil
++}
++
++func startupTestConnection(t *testing.T, epoch uint64) (*clientQUICConnection, *startupTestCloser) {
++	t.Helper()
++	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
++	if err != nil {
++		t.Fatal(err)
++	}
++	template := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(time.Hour)}
++	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
++	if err != nil {
++		t.Fatal(err)
++	}
++	listener, err := quic.ListenAddr("127.0.0.1:0", &tls.Config{
++		Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}},
++		NextProtos:   []string{"flclash-startup-test"},
++	}, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = listener.Close() })
++	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
++	t.Cleanup(cancel)
++	accepted := make(chan error, 1)
++	go func() {
++		server, err := listener.Accept(ctx)
++		if err == nil {
++			t.Cleanup(func() { _ = server.CloseWithError(0, "") })
++		}
++		accepted <- err
++	}()
++	connection, err := quic.DialAddr(ctx, listener.Addr().String(), &tls.Config{
++		InsecureSkipVerify: true, NextProtos: []string{"flclash-startup-test"},
++	}, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := <-accepted; err != nil {
++		t.Fatal(err)
++	}
++	closer := new(startupTestCloser)
++	conn := &clientQUICConnection{
++		startupEpoch: epoch, startupSessionID: epoch + 1,
++		quicConn: connection, rawConn: closer, connDone: make(chan struct{}),
++		udpConnMap: make(map[uint32]*udpPacketConn),
++	}
++	t.Cleanup(func() { conn.closeWithError(errors.New("test finished")) })
++	return conn, closer
++}
++
++func startupTestEpoch(t *testing.T, read func() uint64) {
++	t.Helper()
++	previous := ClientStartupEpoch
++	ClientStartupEpoch = read
++	t.Cleanup(func() { ClientStartupEpoch = previous })
++}
++
++func startupFailingDialer(calls *atomic.Int32, result error) qtls.QuicDialer {
++	return qtls.QuicDialerFunc(func(context.Context, string, qtls.PacketDialer, *tls.Config, *quic.Config, bool) (net.PacketConn, *quic.Conn, error) {
++		calls.Add(1)
++		return nil, nil, result
++	})
++}
++
++func TestStartupEpochReplacesPreVPNTransportOnNextOffer(t *testing.T) {
++	startupTestEpoch(t, func() uint64 { return 1 })
++	old, closer := startupTestConnection(t, 0)
++	var calls atomic.Int32
++	freshAttempt := errors.New("fresh dial attempted")
++	c := &Client{conn: old, quicDialer: startupFailingDialer(&calls, freshAttempt)}
++	conn, err := c.offer(context.Background())
++	if conn != nil || !errors.Is(err, freshAttempt) || calls.Load() != 1 || closer.count.Load() != 1 {
++		t.Fatalf("old transport reused or dial duplicated: conn=%v err=%v dials=%d closes=%d", conn, err, calls.Load(), closer.count.Load())
++	}
++}
++
++func TestStartupEpochKeepsCurrentTransportAndIgnoresOlderEpochRead(t *testing.T) {
++	startupTestEpoch(t, func() uint64 { return 1 })
++	current, closer := startupTestConnection(t, 1)
++	c := &Client{conn: current}
++	c.discardBeforeStartupEpoch(0)
++	for range 10 {
++		conn, err := c.offer(context.Background())
++		if err != nil || conn != current {
++			t.Fatal("current session was not reused", err)
++		}
++	}
++	if closer.count.Load() != 0 {
++		t.Fatal("current session closed")
++	}
++}
++
++func TestStartupEpochProxyModeAndAbsentHookKeepOriginalReuse(t *testing.T) {
++	startupTestEpoch(t, func() uint64 { return 0 })
++	conn, closer := startupTestConnection(t, 0)
++	c := &Client{conn: conn}
++	for _, hook := range []func() uint64{ClientStartupEpoch, nil} {
++		ClientStartupEpoch = hook
++		selected, err := c.offer(context.Background())
++		if err != nil || selected != conn || closer.count.Load() != 0 {
++			t.Fatal("non-VPN or non-Android reuse changed", err)
++		}
++	}
++}
++
++func TestStartupEpochChecksAgainWhenVPNChangesDuringOffer(t *testing.T) {
++	var reads atomic.Int32
++	startupTestEpoch(t, func() uint64 {
++		if reads.Add(1) == 1 {
++			return 0
++		}
++		return 1
++	})
++	old, closer := startupTestConnection(t, 0)
++	var calls atomic.Int32
++	freshAttempt := errors.New("fresh dial")
++	c := &Client{conn: old, quicDialer: startupFailingDialer(&calls, freshAttempt)}
++	conn, err := c.offer(context.Background())
++	if conn != nil || !errors.Is(err, freshAttempt) || calls.Load() != 1 || closer.count.Load() != 1 {
++		t.Fatal("a transport selected across the VPN boundary escaped the epoch check", err)
++	}
++}
++
++func TestStartupEpochConcurrentInvalidationClosesOnlyOnce(t *testing.T) {
++	old, closer := startupTestConnection(t, 0)
++	c := &Client{conn: old}
++	var wg sync.WaitGroup
++	for range 32 {
++		wg.Add(1)
++		go func() { defer wg.Done(); c.discardBeforeStartupEpoch(1) }()
++	}
++	wg.Wait()
++	if c.conn != nil || closer.count.Load() != 1 {
++		t.Fatal("concurrent invalidation did not close precisely the old session")
++	}
++}
++
++func TestStartupEpochDiscardedOfferCannotOverwriteNewState(t *testing.T) {
++	startupTestEpoch(t, func() uint64 { return 1 })
++	ctx, cancel := context.WithCancelCause(context.Background())
++	old := &clientOffer{startupEpoch: 0, done: make(chan struct{}), cancel: cancel}
++	var calls atomic.Int32
++	c := &Client{pending: old, handshakeTimeout: time.Second, quicDialer: startupFailingDialer(&calls, errors.New("old completion"))}
++	c.discardBeforeStartupEpoch(1)
++	if c.pending != nil || !old.discarded || !errors.Is(context.Cause(ctx), errStartupEpochChanged) {
++		t.Fatal("pre-VPN pending offer was not detached and cancelled")
++	}
++	current, closer := startupTestConnection(t, 1)
++	newPending := &clientOffer{startupEpoch: 1}
++	c.conn, c.pending = current, newPending
++	c.completeOffer(old, context.Background())
++	<-old.done
++	if c.conn != current || c.pending != newPending || !errors.Is(old.err, errStartupEpochChanged) || closer.count.Load() != 0 {
++		t.Fatal("late old offer completion changed new state")
++	}
++}
++
++func TestStartupEpochCancelledCallerIsNotRedialed(t *testing.T) {
++	startupTestEpoch(t, func() uint64 { return 1 })
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel()
++	var calls atomic.Int32
++	c := &Client{quicDialer: startupFailingDialer(&calls, errors.New("unexpected dial"))}
++	if _, err := c.offer(ctx); !errors.Is(err, context.Canceled) || calls.Load() != 0 {
++		t.Fatal("cancelled caller was retried", err)
++	}
++}
