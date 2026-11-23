@@ -27,6 +27,9 @@ def verify(condition, message):
 
 
 def capture(tool, *args):
+    tool = Path(tool)
+    if os.name == 'nt' and not tool.suffix:
+        tool = tool.with_suffix('.bat')
     return subprocess.check_output([str(tool), *map(str, args)], text=True)
 
 
