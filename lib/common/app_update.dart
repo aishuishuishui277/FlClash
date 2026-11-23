@@ -48,7 +48,10 @@ SelfUpdateAsset? Function() resolveSelfUpdateAsset = () => selfUpdateAssetFor(
   windowsInstalled: system.isWindows && isInstalledWindowsBuild,
 );
 
-SelfUpdateAsset? get selfUpdateAsset => resolveSelfUpdateAsset();
+bool get officialAppUpdatesAllowed => !system.isAndroid;
+
+SelfUpdateAsset? get selfUpdateAsset =>
+    officialAppUpdatesAllowed ? resolveSelfUpdateAsset() : null;
 
 // The release matrix in .github/workflows/build.yaml builds each of these.
 SelfUpdateAsset? selfUpdateAssetFor(Abi abi, {required bool windowsInstalled}) {

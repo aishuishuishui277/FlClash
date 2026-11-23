@@ -1,0 +1,155 @@
+name: Android v0.9.4 Personal R1
+
+on:
+  push:
+    branches: [experiment-android-v0.9.4]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: '3.50.0'
+  GO_VERSION: '1.27.1'
+
+jobs:
+  checks:
+    if: github.repository == 'aishuishuishui277/FlClash' && github.ref == 'refs/heads/experiment-android-v0.9.4'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: core/go.sum
+      - name: Go Core and Android ARM64 vet
+        working-directory: core
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go test -count=1 .
+          go vet . ./cmd/...
+          tags="$(sed -n 's/^tags: *//p' ../build_config.yaml)"
+          test -n "$tags"
+          GOOS=android GOARCH=arm64 go vet "-tags=$tags" . ./mobile ./tun ./platform
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+      - name: Install Linux test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev
+      - name: Flutter dependencies and analysis
+        run: |
+          flutter --version
+          flutter pub get
+          flutter analyze --no-fatal-infos
+      - name: Flutter Core, network and update tests
+        run: |
+          yq -i '.hooks.user_defines.setup.build_assets = false' pubspec.yaml
+          dart run tool/test.dart test/core test/providers/route_state_test.dart \
+            test/providers/common_action_test.dart test/providers/setup_action_test.dart \
+            test/plugins/service_test.dart test/common/app_update_test.dart \
+            test/common/network_test.dart -- --reporter expanded
+
+  android:
+    if: github.repository == 'aishuishuishui277/FlClash' && github.ref == 'refs/heads/experiment-android-v0.9.4'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: core/go.sum
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+      - name: Install SDK and verify toolchain
+        run: |
+          sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0' 'ndk;28.2.13676358'
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          flutter --version
+          dart --version
+          go version
+          java -version
+          rustup run 1.99.0 rustc --version || rustup toolchain install 1.99.0 --profile minimal
+          rustup target add --toolchain 1.99.0 aarch64-linux-android
+          git submodule status --recursive
+          flutter pub get
+      - name: Configure private release signing
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_PERSONAL_KEYSTORE }}
+          KEY_ALIAS: ${{ secrets.ANDROID_PERSONAL_KEY_ALIAS }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_PERSONAL_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_PERSONAL_KEY_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          keys = ('KEYSTORE', 'KEY_ALIAS', 'STORE_PASSWORD', 'KEY_PASSWORD')
+          values = [os.environ.get(k, '') for k in keys]
+          if not all(values):
+              raise SystemExit('The private release signing secrets are missing')
+          Path('android/app/keystore.jks').write_bytes(base64.b64decode(values[0], validate=True))
+          with Path('android/local.properties').open('a', encoding='utf-8') as properties:
+              properties.write('\n')
+              for key, value in zip(('keyAlias', 'storePassword', 'keyPassword'), values[1:]):
+                  escaped = ''.join(f'\\u{unit:04x}' for unit in map(ord, value))
+                  properties.write(f'{key}={escaped}\n')
+          PY
+          keytool -list -storetype PKCS12 -keystore android/app/keystore.jks \
+            -storepass:env STORE_PASSWORD -alias "$KEY_ALIAS" > /dev/null
+      - name: Build signed ARM64 release
+        run: |
+          bundle=core/Clash.Meta/component/ca/ca-certificates.crt
+          curl -fsSL --retry 3 -o "$bundle" https://curl.se/ca/cacert-2026-09-25.pem
+          echo "a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505  $bundle" | sha256sum -c -
+          dart tool/package.dart android --arch arm64 --tag v0.9.4 --env stable --out dist/personal-r1
+          apk=dist/personal-r1/FlClash-v0.9.4-Personal-R1-arm64.apk
+          mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "$apk"
+      - name: Test Android lifecycle and resolve APK dependencies
+        run: |
+          mkdir -p dist/personal-r1/evidence
+          cd android
+          ./gradlew :common:testDebugUnitTest :service:testDebugUnitTest :app:testDebugUnitTest \
+            -Ptarget-platform=android-arm64 \
+            -x :app:compileFlutterBuildDebug -x :app:copyFlutterAssetsDebug
+          ./gradlew :app:dependencies --configuration releaseRuntimeClasspath \
+            > ../dist/personal-r1/evidence/runtime-dependencies.txt
+      - name: Verify APK, SDK 35 signature, and telemetry exclusions
+        run: python3 tool/verify_personal_r1_apk.py dist/personal-r1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FlClash-v0.9.4-Personal-R1-checks
+          path: |
+            dist/personal-r1/evidence
+            build/*/test-results/testDebugUnitTest/TEST-*.xml
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FlClash-v0.9.4-Personal-R1-arm64
+          path: |
+            dist/personal-r1/FlClash-v0.9.4-Personal-R1-arm64.apk
+            dist/personal-r1/SHA256SUMS.txt
+          if-no-files-found: error
+      - name: Remove signing material
+        if: always()
+        run: rm -f android/app/keystore.jks android/local.properties

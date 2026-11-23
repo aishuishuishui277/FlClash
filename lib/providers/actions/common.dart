@@ -91,7 +91,10 @@ class CommonAction extends _$CommonAction {
   }
 
   Future<bool> autoCheckUpdate() async {
-    if (!ref.read(appSettingProvider).autoCheckUpdate) return false;
+    if (!officialAppUpdatesAllowed ||
+        !ref.read(appSettingProvider).autoCheckUpdate) {
+      return false;
+    }
     final Map<String, dynamic>? res;
     try {
       res = await request.checkForUpdate();
@@ -275,6 +278,7 @@ class CommonAction extends _$CommonAction {
   }
 
   Future<void> installUpdate() async {
+    if (!officialAppUpdatesAllowed) return;
     final download = ref.read(updateDownloadStateProvider);
     if (download is! UpdateReady) return;
     if (system.isAndroid) {
