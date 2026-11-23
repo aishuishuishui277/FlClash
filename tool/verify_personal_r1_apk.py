@@ -37,9 +37,11 @@ def main(directory):
     tools = sdk / 'build-tools' / '37.0.0'
     analyzer = shutil.which('apkanalyzer') or sdk / 'cmdline-tools/latest/bin/apkanalyzer'
 
-    signature = capture(tools / 'apksigner', 'verify', '--min-sdk-version', '35',
-                        '--max-sdk-version', '35', '--verbose', '--print-certs', apk)
+    signature = capture(tools / 'apksigner', 'verify', '--verbose', '--print-certs', apk)
     (evidence / 'signature.txt').write_text(signature)
+    android_15_signature = capture(tools / 'apksigner', 'verify', '--min-sdk-version', '35',
+                                   '--max-sdk-version', '35', '--verbose', apk)
+    (evidence / 'signature-android-15.txt').write_text(android_15_signature)
     certs = re.findall(r'certificate SHA-256 digest: ([a-fA-F0-9]{64})', signature)
     verify(certs == [CERT_SHA256], 'Unexpected private signing certificate')
 
